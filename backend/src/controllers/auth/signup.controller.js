@@ -92,20 +92,29 @@ const signup = async (req, res) => {
     const { token, code } = await createVerification(userId, 'email_verify');
     const verifyLink = `${process.env.APP_URL}/verify?token=${token}`;
 
-    // Send email
-    await sendMail(
-      email,
-      'אימות חשבון Botomat',
-      getVerificationEmail(code, verifyLink, 'he')
-    );
+    // Send email (don't fail signup if email fails — user can resend later)
+    let emailSent = true;
+    try {
+      await sendMail(
+        email,
+        'אימות חשבון Botomat',
+        getVerificationEmail(code, verifyLink, 'he')
+      );
+    } catch (mailErr) {
+      emailSent = false;
+      console.error('[Signup] Email send failed for', email, '-', mailErr.message);
+    }
 
     res.status(201).json({
       success: true,
-      message: 'User created. Verification email sent.',
+      emailSent,
+      message: emailSent
+        ? 'User created. Verification email sent.'
+        : 'User created, but verification email failed. Please request a new code.',
     });
   } catch (error) {
     console.error('Signup error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'שגיאה בהרשמה. אנא נסה שוב מאוחר יותר.' });
   }
 };
 

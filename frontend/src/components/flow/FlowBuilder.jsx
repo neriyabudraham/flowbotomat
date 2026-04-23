@@ -468,7 +468,6 @@ function FlowBuilderInner({ initialData, onChange, onNodeSelect, onEdgeDelete })
         minZoom={0.3}
         maxZoom={2}
         deleteKeyCode={['Backspace', 'Delete']}
-        selectionOnDrag
         selectionMode={SelectionMode.Partial}
         panOnDrag
         panOnScroll

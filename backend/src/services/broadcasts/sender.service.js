@@ -59,14 +59,23 @@ async function getWahaConnection(userId) {
  */
 async function saveMessageToDatabase(userId, contactId, waMessageId, messageType, content, mediaUrl = null, filename = null) {
   try {
+    // ON CONFLICT DO NOTHING on the (user_id, wa_message_id) unique index so the
+    // webhook's handleOutgoingDeviceMessage and this sender path can't both land
+    // the same message row. The INSERT returns 0 rows on conflict — in that
+    // case we skip the socket emit (the webhook will emit it, or already did).
     const result = await db.query(`
-      INSERT INTO messages 
+      INSERT INTO messages
       (user_id, contact_id, wa_message_id, direction, message_type, content, media_url, media_filename, status, sent_at)
       VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, 'sent', NOW())
+      ON CONFLICT (user_id, wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING
       RETURNING *
     `, [userId, contactId, waMessageId, messageType, content, mediaUrl, filename]);
-    
+
     const message = result.rows[0];
+    if (!message) {
+      // Already inserted by the webhook path — nothing to do.
+      return null;
+    }
     
     // Update contact's last_message_at to move chat to top
     await db.query(`
@@ -831,61 +840,61 @@ async function sendToRecipient(userId, connection, recipient, messages, campaign
 }
 
 /**
- * Resume stuck broadcast campaigns after server restart
- * Finds campaigns that were in 'running' status and restarts them
+ * Resume stuck broadcast campaigns after server restart.
+ *
+ * The new campaignWindow service owns the actual sending loop (tick every 30s).
+ * All this function does on startup is reset interrupted per-recipient state:
+ *   • 'sending' → 'pending'  (so they get re-picked on the next tick)
+ *   • ensure next_batch_at is not stuck in the future for running campaigns
+ * so the window tick naturally resumes work.
+ *
+ * CRITICAL: we intentionally DO NOT call the old in-memory startCampaignSending
+ * loop anymore. Running both would race on the same 'pending' rows and send
+ * duplicate messages — the exact bug the user hit.
  */
 async function resumeStuckBroadcastCampaigns() {
   try {
-    const stuckCampaigns = await db.query(`
-      SELECT 
-        id, user_id, name,
-        (SELECT COUNT(*) FROM broadcast_campaign_recipients WHERE campaign_id = bc.id AND status = 'pending') as pending_count,
-        (SELECT COUNT(*) FROM broadcast_campaign_recipients WHERE campaign_id = bc.id AND status = 'sending') as sending_count,
-        (SELECT COUNT(*) FROM broadcast_campaign_recipients WHERE campaign_id = bc.id AND status = 'sent') as sent_count
-      FROM broadcast_campaigns bc
-      WHERE status = 'running'
+    // Reset any 'sending' rows left over from a previous restart
+    const resetRes = await db.query(`
+      UPDATE broadcast_campaign_recipients
+      SET status = 'pending'
+      WHERE status = 'sending'
+      RETURNING id
     `);
-    
-    if (stuckCampaigns.rows.length === 0) {
-      return;
+    if (resetRes.rowCount > 0) {
+      console.log(`[Broadcast Sender] Reset ${resetRes.rowCount} interrupted 'sending' recipients → 'pending'`);
     }
-    
-    console.log(`[Broadcast Sender] Found ${stuckCampaigns.rows.length} stuck campaigns on startup, resuming...`);
-    
-    for (const campaign of stuckCampaigns.rows) {
-      const pendingCount = parseInt(campaign.pending_count) || 0;
-      const sendingCount = parseInt(campaign.sending_count) || 0;
-      const sentCount = parseInt(campaign.sent_count) || 0;
-      
-      // Reset 'sending' recipients back to 'pending' (they were interrupted mid-send)
-      if (sendingCount > 0) {
-        await db.query(`
-          UPDATE broadcast_campaign_recipients
-          SET status = 'pending'
-          WHERE campaign_id = $1 AND status = 'sending'
-        `, [campaign.id]);
-        console.log(`[Broadcast Sender] Reset ${sendingCount} 'sending' recipients to 'pending' for campaign ${campaign.id}`);
-      }
-      
-      const totalPending = pendingCount + sendingCount;
-      
-      // If no pending recipients, mark as completed
-      if (totalPending === 0) {
-        await db.query(`
-          UPDATE broadcast_campaigns 
-          SET status = 'completed', completed_at = NOW(), updated_at = NOW()
-          WHERE id = $1
-        `, [campaign.id]);
-        console.log(`[Broadcast Sender] Campaign ${campaign.id} (${campaign.name}) had no pending recipients, marked as completed (${sentCount} sent)`);
-        continue;
-      }
-      
-      console.log(`[Broadcast Sender] Resuming campaign ${campaign.id} (${campaign.name}): ${sentCount} sent, ${totalPending} pending`);
-      
-      // Re-start the campaign (it will pick up pending recipients)
-      startCampaignSending(campaign.id, campaign.user_id).catch(err => {
-        console.error(`[Broadcast Sender] Error resuming campaign ${campaign.id}:`, err);
-      });
+
+    // For running campaigns with no more recipients, mark completed
+    const completed = await db.query(`
+      UPDATE broadcast_campaigns
+      SET status = 'completed', completed_at = NOW(), next_batch_at = NULL, updated_at = NOW()
+      WHERE status = 'running'
+        AND NOT EXISTS (
+          SELECT 1 FROM broadcast_campaign_recipients r
+          WHERE r.campaign_id = broadcast_campaigns.id AND r.status IN ('pending', 'sending')
+        )
+      RETURNING id, name
+    `);
+    for (const row of completed.rows) {
+      console.log(`[Broadcast Sender] Campaign ${row.id} (${row.name}) has no pending recipients — marked completed`);
+    }
+
+    // For running campaigns with pending recipients, nudge next_batch_at so
+    // the window tick picks them up on its next pass.
+    const nudged = await db.query(`
+      UPDATE broadcast_campaigns
+      SET next_batch_at = LEAST(COALESCE(next_batch_at, NOW()), NOW())
+      WHERE status = 'running'
+        AND (next_batch_at IS NULL OR next_batch_at > NOW())
+        AND EXISTS (
+          SELECT 1 FROM broadcast_campaign_recipients r
+          WHERE r.campaign_id = broadcast_campaigns.id AND r.status = 'pending'
+        )
+      RETURNING id
+    `);
+    if (nudged.rowCount > 0) {
+      console.log(`[Broadcast Sender] Nudged ${nudged.rowCount} running campaign(s) — window tick will pick up`);
     }
   } catch (error) {
     console.error('[Broadcast Sender] Resume stuck campaigns error:', error);

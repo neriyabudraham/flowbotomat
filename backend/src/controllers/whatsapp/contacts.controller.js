@@ -531,14 +531,53 @@ async function importGroupParticipants(req, res) {
   try {
     const userId = req.user.id;
     const { groupId } = req.params;
-    const { selectedPhones = [], participantNames = {} } = req.body;
-    
+    let { selectedPhones = [], participantNames = {}, tagName, tagWithGroupName } = req.body;
+
     if (!groupId) {
       return res.status(400).json({ error: 'חסר מזהה קבוצה' });
     }
-    
+
+    // Auto-fetch: if no phones specified, pull the entire group from WAHA.
+    // Also needed to resolve the group name for optional group-name tagging.
+    let resolvedGroupName = null;
+    if (!selectedPhones || selectedPhones.length === 0 || tagWithGroupName) {
+      try {
+        const connResult = await pool.query(
+          `SELECT * FROM whatsapp_connections WHERE user_id = $1 AND status = 'connected' LIMIT 1`,
+          [userId]
+        );
+        if (connResult.rows.length === 0) {
+          return res.status(400).json({ error: 'אין חיבור וואטסאפ פעיל' });
+        }
+        const connection = await prepareConnection(connResult.rows[0]);
+        const groups = await wahaService.getSessionGroups(connection);
+        const group = groups.find(g => g.JID === groupId || g.JID === `${groupId}@g.us`);
+        if (!group) {
+          return res.status(404).json({ error: 'קבוצה לא נמצאה בוואצאפ' });
+        }
+        resolvedGroupName = group.Name || null;
+
+        if (!selectedPhones || selectedPhones.length === 0) {
+          selectedPhones = [];
+          for (const p of (group.Participants || [])) {
+            const phone = p.PhoneNumber?.replace('@s.whatsapp.net', '').replace('@c.us', '') || '';
+            if (phone && !phone.includes('@lid')) {
+              selectedPhones.push(phone);
+              if (!participantNames[phone] && p.DisplayName) {
+                participantNames[phone] = p.DisplayName;
+              }
+            }
+          }
+          console.log(`[Contacts] Auto-collected ${selectedPhones.length} participants from group ${group.Name}`);
+        }
+      } catch (fetchErr) {
+        console.error('[Contacts] Group auto-fetch error:', fetchErr.message);
+        return res.status(500).json({ error: 'שגיאה בטעינת משתתפי הקבוצה מוואצאפ' });
+      }
+    }
+
     if (!selectedPhones || selectedPhones.length === 0) {
-      return res.status(400).json({ error: 'לא נבחרו אנשי קשר לייבוא' });
+      return res.status(400).json({ error: 'לא נמצאו אנשי קשר לייבוא בקבוצה' });
     }
     
     // Get user's contact limit from feature overrides and subscription
@@ -653,13 +692,56 @@ async function importGroupParticipants(req, res) {
     }
     
     console.log(`[Contacts] Imported ${imported} new contacts, total ${contactIds.length} for audience`);
-    
+
+    // Optional tagging: tag every contact (imported + matched existing) with the
+    // chosen tag name. Supports either an explicit tag (`tagName`) or the group's
+    // own name (`tagWithGroupName=true` → use resolvedGroupName). Tag is created
+    // on-demand if it doesn't exist.
+    let taggedContacts = 0;
+    let finalTagName = null;
+    try {
+      const effectiveTagName = (tagName && String(tagName).trim())
+        || (tagWithGroupName && resolvedGroupName && String(resolvedGroupName).trim())
+        || null;
+
+      if (effectiveTagName && contactIds.length > 0) {
+        finalTagName = effectiveTagName.slice(0, 80);
+        // Upsert the tag
+        const tagRes = await pool.query(
+          `INSERT INTO contact_tags (user_id, name, color)
+           VALUES ($1, $2, '#8B5CF6')
+           ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+           RETURNING id`,
+          [userId, finalTagName]
+        );
+        const tagId = tagRes.rows[0].id;
+
+        // Assign tag to each contact (ignore duplicates via unique constraint)
+        const values = contactIds.map((_, i) => `($${i + 2}, $1)`).join(',');
+        const assignRes = await pool.query(
+          `INSERT INTO contact_tag_assignments (contact_id, tag_id)
+           VALUES ${values}
+           ON CONFLICT DO NOTHING
+           RETURNING contact_id`,
+          [tagId, ...contactIds]
+        );
+        taggedContacts = assignRes.rowCount;
+        console.log(`[Contacts] Tagged ${taggedContacts} contacts with "${finalTagName}"`);
+      }
+    } catch (tagErr) {
+      console.error('[Contacts] Tagging error (non-fatal):', tagErr.message);
+    }
+
     res.json({
       imported,
       contactIds, // Return all contact IDs (existing + new) for audience selection
+      totalSelected: selectedPhones.length,
+      groupName: resolvedGroupName,
+      tag: finalTagName,
+      tagged: taggedContacts,
       message: imported > 0 ? `יובאו ${imported} אנשי קשר חדשים` : 'כל אנשי הקשר כבר קיימים'
     });
-    
+
   } catch (error) {
     console.error('[Contacts] Import group participants error:', error);
     res.status(500).json({ error: 'שגיאה בייבוא משתתפי הקבוצה' });

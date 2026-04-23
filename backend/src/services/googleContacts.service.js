@@ -70,6 +70,21 @@ async function handleCallback(code, userId, slot = 0) {
     console.warn('[GoogleContacts] Could not get user info (non-fatal):', infoErr.message);
   }
 
+  // Dedupe by email: if the same account is already connected to another slot
+  // for this user, refresh that slot's tokens instead of creating a duplicate.
+  if (userInfo.email) {
+    const existing = await db.query(
+      `SELECT slot FROM user_integrations
+        WHERE user_id = $1 AND integration_type = 'google_contacts' AND LOWER(account_email) = LOWER($2)
+        ORDER BY slot ASC LIMIT 1`,
+      [userId, userInfo.email]
+    );
+    if (existing.rows.length > 0) {
+      slot = existing.rows[0].slot;
+      console.log(`[GoogleContacts] email ${userInfo.email} already connected at slot ${slot} — refreshing tokens there instead of adding a duplicate`);
+    }
+  }
+
   // Encrypt tokens
   const encryptedAccess = encrypt(tokens.access_token);
   const encryptedRefresh = tokens.refresh_token ? encrypt(tokens.refresh_token) : null;
@@ -96,7 +111,59 @@ async function handleCallback(code, userId, slot = 0) {
     slot,
   ]);
 
-  return { email: userInfo.email, name: userInfo.name };
+  return { email: userInfo.email, name: userInfo.name, slot };
+}
+
+/**
+ * Disconnect a specific slot (remove an account).
+ */
+async function disconnectSlot(userId, slot) {
+  try {
+    const integ = await db.query(
+      `SELECT access_token, refresh_token FROM user_integrations
+        WHERE user_id = $1 AND integration_type = 'google_contacts' AND slot = $2`,
+      [userId, slot]
+    );
+    if (integ.rows.length > 0) {
+      try {
+        const client = await getAuthenticatedClientBySlot(userId, slot);
+        await client.revokeCredentials();
+      } catch { /* non-fatal */ }
+    }
+  } catch { /* non-fatal */ }
+  await db.query(
+    `DELETE FROM user_integrations WHERE user_id = $1 AND integration_type = 'google_contacts' AND slot = $2`,
+    [userId, slot]
+  );
+}
+
+/**
+ * Swap slots — promote a given slot to primary (slot 0).
+ */
+async function setPrimarySlot(userId, slot) {
+  if (slot === 0) return;
+  // Use a free temp slot to avoid unique-constraint collisions during the swap.
+  const free = await db.query(
+    `SELECT COALESCE(MAX(slot), 0) + 1 AS free FROM user_integrations
+      WHERE user_id = $1 AND integration_type = 'google_contacts'`,
+    [userId]
+  );
+  const tmp = free.rows[0].free + 100;
+  // Step 1 — move current primary (slot 0) to a temporary slot.
+  await db.query(
+    `UPDATE user_integrations SET slot = $2 WHERE user_id = $1 AND integration_type = 'google_contacts' AND slot = 0`,
+    [userId, tmp]
+  );
+  // Step 2 — promote the chosen slot to slot 0.
+  await db.query(
+    `UPDATE user_integrations SET slot = 0 WHERE user_id = $1 AND integration_type = 'google_contacts' AND slot = $2`,
+    [userId, slot]
+  );
+  // Step 3 — return the previous primary into the now-vacant slot.
+  await db.query(
+    `UPDATE user_integrations SET slot = $2 WHERE user_id = $1 AND integration_type = 'google_contacts' AND slot = $3`,
+    [userId, slot, tmp]
+  );
 }
 
 /**
@@ -265,21 +332,47 @@ async function listContacts(userId, pageSize = 100, pageToken = null) {
   const google = getGoogle();
   const auth = await getAuthenticatedClient(userId);
   const people = google.people({ version: 'v1', auth });
-  
+
   const params = {
     resourceName: 'people/me',
     pageSize,
     personFields: 'names,emailAddresses,phoneNumbers,memberships,metadata',
   };
-  
+
   if (pageToken) {
     params.pageToken = pageToken;
   }
-  
+
   const response = await people.people.connections.list(params);
-  
+
   const contacts = (response.data.connections || []).map(formatContact);
-  
+
+  return {
+    contacts,
+    nextPageToken: response.data.nextPageToken,
+    totalPeople: response.data.totalPeople,
+  };
+}
+
+/**
+ * List contacts from a specific slot (Google account). Same shape as
+ * listContacts but scoped to one connected account.
+ */
+async function listContactsBySlot(userId, slot = 0, pageSize = 100, pageToken = null) {
+  const google = getGoogle();
+  const auth = await getAuthenticatedClientBySlot(userId, slot);
+  const people = google.people({ version: 'v1', auth });
+
+  const params = {
+    resourceName: 'people/me',
+    pageSize,
+    personFields: 'names,emailAddresses,phoneNumbers,memberships,metadata',
+  };
+  if (pageToken) params.pageToken = pageToken;
+
+  const response = await people.people.connections.list(params);
+  const contacts = (response.data.connections || []).map(formatContact);
+
   return {
     contacts,
     nextPageToken: response.data.nextPageToken,
@@ -743,6 +836,112 @@ async function findOrCreateBySlot(userId, slot = 0, { name, phone, notes }) {
 }
 
 /**
+ * List all Google Contacts slots (multi-account) connected for this user.
+ */
+async function listConnectedSlots(userId) {
+  const result = await db.query(
+    `SELECT slot, account_email, account_name, status, updated_at
+       FROM user_integrations
+      WHERE user_id = $1 AND integration_type = 'google_contacts'
+      ORDER BY slot ASC`,
+    [userId]
+  );
+  const connected = result.rows.filter((r) => r.status === 'connected');
+  // Deduplicate by email (keep lowest slot). Defensive — the callback code
+  // already merges new connections into an existing slot, but older rows
+  // might still be duplicated.
+  const seen = new Set();
+  const deduped = [];
+  for (const r of connected) {
+    const key = (r.account_email || '').toLowerCase();
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    deduped.push(r);
+  }
+  return deduped.map((r) => ({
+    slot: r.slot,
+    email: r.account_email,
+    name: r.account_name,
+    updatedAt: r.updated_at,
+  }));
+}
+
+/**
+ * Search for a contact by phone in a specific slot. Returns resourceName if found, else null.
+ */
+async function findContactInSlot(userId, slot, phone) {
+  const normalizedPhone = String(phone).replace(/\D/g, '');
+  if (!normalizedPhone) return null;
+  try {
+    const google = getGoogle();
+    const auth = await getAuthenticatedClientBySlot(userId, slot);
+    const people = google.people({ version: 'v1', auth });
+    const search = await people.people.searchContacts({
+      query: normalizedPhone,
+      readMask: 'names,phoneNumbers',
+      pageSize: 10,
+    });
+    const results = search.data.results || [];
+    for (const r of results) {
+      const phones = r.person?.phoneNumbers || [];
+      for (const p of phones) {
+        const pDigits = String(p.value || '').replace(/\D/g, '');
+        if (pDigits && (pDigits === normalizedPhone || pDigits.endsWith(normalizedPhone) || normalizedPhone.endsWith(pDigits))) {
+          return { resourceName: r.person.resourceName, displayName: r.person.names?.[0]?.displayName || null };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[GoogleContacts] findContactInSlot failed (slot ${slot}): ${e.message}`);
+  }
+  return null;
+}
+
+/**
+ * Ensure the given label exists in a slot — return its resourceName.
+ * Creates the label if missing.
+ */
+async function ensureLabelInSlot(userId, slot, labelName) {
+  const google = getGoogle();
+  const auth = await getAuthenticatedClientBySlot(userId, slot);
+  const people = google.people({ version: 'v1', auth });
+
+  const { data } = await people.contactGroups.list({ pageSize: 200 });
+  const existing = (data.contactGroups || []).find(
+    (g) => g.groupType === 'USER_CONTACT_GROUP' && g.name === labelName
+  );
+  if (existing) return existing.resourceName;
+
+  const created = await people.contactGroups.create({
+    requestBody: { contactGroup: { name: labelName } },
+  });
+  return created.data.resourceName;
+}
+
+/**
+ * Create a contact in a specific slot with an optional label tag.
+ */
+async function createContactInSlot(userId, slot, { name, phone, labelResourceName, notes }) {
+  const google = getGoogle();
+  const auth = await getAuthenticatedClientBySlot(userId, slot);
+  const people = google.people({ version: 'v1', auth });
+
+  const normalizedPhone = '+' + String(phone).replace(/\D/g, '');
+
+  const created = await people.people.createContact({
+    requestBody: {
+      names: [{ displayName: name, givenName: name }],
+      phoneNumbers: [{ value: normalizedPhone, type: 'mobile' }],
+      biographies: notes ? [{ value: notes }] : [],
+      ...(labelResourceName
+        ? { memberships: [{ contactGroupMembership: { contactGroupResourceName: labelResourceName } }] }
+        : {}),
+    },
+  });
+  return { resourceName: created.data.resourceName };
+}
+
+/**
  * Get total contact count for a specific Google account slot
  */
 async function getContactCountBySlot(userId, slot = 0) {
@@ -763,11 +962,18 @@ module.exports = {
   handleCallback,
   getConnectionStatus,
   disconnect,
+  listConnectedSlots,
+  findContactInSlot,
+  ensureLabelInSlot,
+  createContactInSlot,
+  disconnectSlot,
+  setPrimarySlot,
   getAuthenticatedClient,
   
   // Contacts
   searchContacts,
   listContacts,
+  listContactsBySlot,
   findByPhone,
   findByEmail,
   getContact,

@@ -25,11 +25,26 @@ const QUEUE_INTERVAL = 5000; // Check queue every 5 seconds
 const DEFAULT_STATUS_TIMEOUT = 600000; // 10 minutes timeout per status (default)
 const activeItemTokens = new Map(); // queueId -> token (prevents duplicate processing after stuck reset)
 const forceStopItems = new Set(); // queueIds that admin requested immediate stop on
+const adminStoppedItems = new Set(); // queueIds specifically stopped by admin (don't auto-requeue)
 
 // Generic settings cache (refreshed every 10 seconds from DB for quick admin changes)
 const SETTINGS_CACHE_TTL_MS = 10000;
 const _settingsCache = {};
 const _settingsCacheTime = {};
+
+// Subscribe to cross-container settings change notifications so that
+// admin saves take effect instantly (not after the 10s TTL).
+try {
+  const settingsBus = require('./settingsBus.service');
+  settingsBus.registerOnChange((key) => {
+    if (!key || key === '*') {
+      Object.keys(_settingsCacheTime).forEach(k => { _settingsCacheTime[k] = 0; });
+    } else {
+      delete _settingsCache[key];
+      delete _settingsCacheTime[key];
+    }
+  });
+} catch (_) { /* bus loads independently */ }
 
 async function getSettingFloat(key, defaultValue) {
   const now = Date.now();
@@ -177,13 +192,30 @@ function getCurrentProcessingPromise() {
 /**
  * Start the queue processor
  */
-function startQueueProcessor() {
+async function startQueueProcessor() {
   if (isRunning) {
     console.log('[StatusBot Queue] Already running');
     return;
   }
 
   isRunning = true;
+
+  // On startup: immediately reset any items stuck in 'processing' state from a previous crash/restart
+  // These items will be resumed from where they left off (contacts-format tracks progress per-contact)
+  try {
+    const stuckResult = await db.query(`
+      UPDATE status_bot_queue
+      SET queue_status = 'pending', processing_started_at = NULL
+      WHERE queue_status = 'processing'
+      RETURNING id, connection_id
+    `);
+    if (stuckResult.rowCount > 0) {
+      console.log(`📅 [StatusBot Queue] Recovered ${stuckResult.rowCount} stuck item(s) from previous shutdown — will resume sending`);
+    }
+  } catch (err) {
+    console.error('[StatusBot Queue] Error recovering stuck items:', err.message);
+  }
+
   console.log('📅 Status Bot queue processor started');
 
   intervalId = setInterval(processQueue, QUEUE_INTERVAL);
@@ -261,43 +293,216 @@ async function processItem(item) {
       }
     }
 
-    // If stopped early due to timeouts, re-queue to continue with remaining contacts
-    const MAX_SEND_RETRIES = 3;
-    if (sendResult?.stoppedEarly && (item.retry_count || 0) < MAX_SEND_RETRIES) {
-      const retryPauseMinutes = await getSettingFloat('statusbot_contacts_retry_pause_minutes', 3);
-      console.log(`[StatusBot] ⏸️ Status id=${item.id} stopped early (${sendResult.contactsSent}/${sendResult.totalContacts} sent, retry ${(item.retry_count || 0) + 1}/${MAX_SEND_RETRIES}) — re-queuing in ${retryPauseMinutes}min`);
+    // If stopped early, auto-retry with time-based escalation instead of giving up.
+    //   • Retry delays: 2, 3, 4, 5, ... min (retry_count + 2)
+    //   • After 20 min from first_attempted_at: set partial_abandoned=true so
+    //     next queued items for the same connection can proceed (retries
+    //     continue in background on this item)
+    //   • After 2 hours: give up, mark 'failed', send final admin alert
+    //   • Shutdown / admin-stop / user-delete still short-circuit
+    if (sendResult?.stoppedEarly) {
+      const deletedCheck = await db.query(
+        `SELECT q.queue_status, q.first_attempted_at, q.partial_abandoned, q.admin_alerted_20min, q.retry_cancelled, s.deleted_at
+         FROM status_bot_queue q
+         LEFT JOIN status_bot_statuses s ON s.queue_id = q.id WHERE q.id = $1`,
+        [item.id]
+      );
+
+      // Admin manually cancelled auto-retry → park the item as 'sent' (partial)
+      // with no reschedule. Clearing retry_cancelled later will re-enable
+      // auto-resume via the watchdog.
+      if (deletedCheck.rows[0]?.retry_cancelled === true) {
+        console.log(`[StatusBot] 🛑 Status id=${item.id} retry_cancelled=true — parking as 'sent' partial, no auto-retry`);
+        await db.query(
+          `UPDATE status_bot_queue
+           SET queue_status = 'sent',
+               processing_started_at = NULL,
+               scheduled_for = NULL,
+               sent_at = COALESCE(sent_at, NOW()),
+               contacts_sent = COALESCE($2, contacts_sent),
+               contacts_total = COALESCE($3, contacts_total)
+           WHERE id = $1`,
+          [item.id, sendResult?.contactsSent || null, sendResult?.totalContacts || null]
+        );
+        activeItemTokens.delete(item.id);
+        emitToAdmin('statusbot:processing_end', {
+          id: item.id, success: true, retryCancelled: true,
+          contactsSent: sendResult.contactsSent, totalContacts: sendResult.totalContacts,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+      const dcRow = deletedCheck.rows[0] || {};
+      const wasDeleted = dcRow.queue_status === 'cancelled' || dcRow.deleted_at;
+      if (wasDeleted) {
+        console.log(`[StatusBot] 🗑️ Status id=${item.id} was deleted/cancelled by user — not re-queuing`);
+        await db.query(
+          `UPDATE status_bot_queue SET queue_status = 'cancelled', processing_started_at = NULL WHERE id = $1`,
+          [item.id]
+        );
+        activeItemTokens.delete(item.id);
+        emitToAdmin('statusbot:processing_end', { id: item.id, success: false, cancelled: true, timestamp: new Date().toISOString() });
+        return;
+      }
+      if (adminStoppedItems.has(item.id) || dcRow.queue_status === 'sent') {
+        adminStoppedItems.delete(item.id);
+        console.log(`[StatusBot] ⏹️ Status id=${item.id} stopped by admin — marking as 'sent' partial (no auto-requeue).`);
+        await db.query(
+          `UPDATE status_bot_queue
+           SET contacts_sent = COALESCE($2, contacts_sent),
+               contacts_total = COALESCE($3, contacts_total),
+               sent_at = COALESCE(sent_at, NOW()),
+               sent_timed_out = false,
+               processing_started_at = NULL
+           WHERE id = $1`,
+          [item.id, sendResult?.contactsSent || null, sendResult?.totalContacts || null]
+        );
+        activeItemTokens.delete(item.id);
+        emitToAdmin('statusbot:processing_end', {
+          id: item.id, success: true, stoppedByAdmin: true,
+          contactsSent: sendResult.contactsSent, totalContacts: sendResult.totalContacts,
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      // Compute elapsed from first_attempted_at (set on first pass, else now)
+      const firstAt = dcRow.first_attempted_at ? new Date(dcRow.first_attempted_at) : new Date();
+      const elapsedMin = (Date.now() - firstAt.getTime()) / 60000;
+
+      // Final give-up after 2 hours
+      if (elapsedMin >= 120) {
+        console.warn(`[StatusBot] 🛑 Status id=${item.id} partial retry give-up after ${elapsedMin.toFixed(1)}min — marking failed, alerting admin`);
+        await db.query(
+          `UPDATE status_bot_queue
+           SET queue_status = 'failed',
+               error_message = $2,
+               contacts_sent = COALESCE($3, contacts_sent),
+               contacts_total = COALESCE($4, contacts_total),
+               processing_started_at = NULL
+           WHERE id = $1`,
+          [item.id, `נמסר ${sendResult.contactsSent}/${sendResult.totalContacts} אחרי ניסיונות חוזרים למשך שעתיים — ויתור סופי`, sendResult?.contactsSent || null, sendResult?.totalContacts || null]
+        );
+        try {
+          const { openAlert } = require('./healthWatchdog.service');
+          await openAlert({
+            severity: 'high', type: 'partial_giveup',
+            userId: item.user_id, connectionId: item.connection_id, queueId: item.id,
+            title: 'סטטוס לא הושלם — ויתור סופי אחרי שעתיים',
+            message: `${sendResult.contactsSent}/${sendResult.totalContacts} אחרי ${elapsedMin.toFixed(0)} דקות וניסיונות חוזרים`,
+            dedupKey: `partial_giveup:${item.id}`,
+          });
+        } catch (e) { console.warn(`[StatusBot] giveup alert failed: ${e.message}`); }
+
+        // Telegram admin notification — final give-up
+        try {
+          const userInfo = await db.query(
+            `SELECT c.phone_number, u.name FROM status_bot_connections c
+             LEFT JOIN users u ON u.id = c.user_id
+             WHERE c.id = $1`,
+            [item.connection_id]
+          );
+          const { notifyPartialFinalGiveup } = require('../notifications/telegram.service');
+          await notifyPartialFinalGiveup({
+            phoneNumber: userInfo.rows[0]?.phone_number,
+            userName: userInfo.rows[0]?.name,
+            contactsSent: sendResult.contactsSent,
+            contactsTotal: sendResult.totalContacts,
+          });
+        } catch (e) { console.warn(`[StatusBot] Telegram giveup failed: ${e.message}`); }
+
+        activeItemTokens.delete(item.id);
+        emitToAdmin('statusbot:processing_end', { id: item.id, success: false, partialGiveup: true, contactsSent: sendResult.contactsSent, totalContacts: sendResult.totalContacts, timestamp: new Date().toISOString() });
+        return;
+      }
+
+      // Shutdown → requeue immediately, let the next container pick up
+      const isShutdown = gracefulShutdownRequested;
+      const currentRetryCount = item.retry_count || 0;
+      // Incremental delay: 2, 3, 4, ... min per attempt (capped at 10min)
+      const delayMin = isShutdown ? 0 : Math.min(10, 2 + currentRetryCount);
+      // After 20min of trying on this item, abandon queue-blocking (not retries)
+      const shouldAbandon = !dcRow.partial_abandoned && elapsedMin >= 20;
+      const shouldAlertAdmin20 = !dcRow.admin_alerted_20min && elapsedMin >= 20;
+
+      console.log(`[StatusBot] 🔄 Status id=${item.id} partial (${sendResult.contactsSent}/${sendResult.totalContacts}) — retry in ${delayMin}min${shouldAbandon ? ' — also unblocking queue' : ''} (elapsed ${elapsedMin.toFixed(1)}min)`);
+
       await db.query(
         `UPDATE status_bot_queue
-         SET queue_status = 'pending', processing_started_at = NULL,
+         SET queue_status = 'pending',
+             processing_started_at = NULL,
              scheduled_for = NOW() + ($2 * interval '1 minute'),
-             retry_count = COALESCE(retry_count, 0) + 1
+             retry_count = CASE WHEN $3::boolean THEN COALESCE(retry_count,0) ELSE COALESCE(retry_count, 0) + 1 END,
+             first_attempted_at = COALESCE(first_attempted_at, $4),
+             partial_abandoned = partial_abandoned OR $5::boolean,
+             admin_alerted_20min = admin_alerted_20min OR $6::boolean,
+             contacts_sent = COALESCE($7, contacts_sent),
+             contacts_total = COALESCE($8, contacts_total)
          WHERE id = $1`,
-        [item.id, retryPauseMinutes]
+        [item.id, delayMin, isShutdown, firstAt, shouldAbandon, shouldAlertAdmin20, sendResult?.contactsSent || null, sendResult?.totalContacts || null]
       );
+
+      // Admin heads-up at the 20-min mark (once per item)
+      if (shouldAlertAdmin20) {
+        try {
+          const { openAlert } = require('./healthWatchdog.service');
+          await openAlert({
+            severity: 'high', type: 'partial_long_running',
+            userId: item.user_id, connectionId: item.connection_id, queueId: item.id,
+            title: 'סטטוס עדיין לא הושלם אחרי 20 דקות',
+            message: `${sendResult.contactsSent}/${sendResult.totalContacts} — המערכת ממשיכה לנסות ברקע עד שעתיים, סטטוסים אחרים של הלקוח ממשיכים כרגיל`,
+            dedupKey: `partial_20min:${item.id}`,
+          });
+        } catch (e) { console.warn(`[StatusBot] 20min alert failed: ${e.message}`); }
+
+        // Telegram admin notification — 20-minute heads-up (user phone + name)
+        try {
+          const userInfo = await db.query(
+            `SELECT c.phone_number, u.name FROM status_bot_connections c
+             LEFT JOIN users u ON u.id = c.user_id
+             WHERE c.id = $1`,
+            [item.connection_id]
+          );
+          const { notifyPartialAt20Min } = require('../notifications/telegram.service');
+          await notifyPartialAt20Min({
+            phoneNumber: userInfo.rows[0]?.phone_number,
+            userName: userInfo.rows[0]?.name,
+            contactsSent: sendResult.contactsSent,
+            contactsTotal: sendResult.totalContacts,
+          });
+        } catch (e) { console.warn(`[StatusBot] Telegram 20min failed: ${e.message}`); }
+      }
+
       activeItemTokens.delete(item.id);
       emitToAdmin('statusbot:processing_end', {
-        id: item.id, success: true, stoppedEarly: true,
+        id: item.id, success: true, stoppedEarly: true, autoRetry: true, retryInMin: delayMin,
         contactsSent: sendResult.contactsSent, totalContacts: sendResult.totalContacts,
         timestamp: new Date().toISOString()
       });
       return;
     }
 
+    const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
+    const isPartialSend = sendResult?.stoppedEarly && sendResult.contactsSent < sendResult.totalContacts;
+    const isTimeout = !!sendResult?.timeout;
+
     await db.query(
-      `UPDATE status_bot_queue SET queue_status = 'sent', sent_at = NOW(), sent_timed_out = $2 WHERE id = $1`,
-      [item.id, !!sendResult?.timeout]
+      `UPDATE status_bot_queue SET queue_status = 'sent', sent_at = NOW(), sent_timed_out = $2, contacts_sent = COALESCE($3, contacts_sent), contacts_total = COALESCE($4, contacts_total) WHERE id = $1`,
+      [item.id, isTimeout, sendResult?.contactsSent || null, sendResult?.totalContacts || null]
     );
 
-    const uploadDuration = Math.round((Date.now() - now.getTime()) / 1000);
-    if (sendResult?.stoppedEarly) {
-      console.log(`[StatusBot] ⚠️ Status id=${item.id} type=${item.status_type} completed with partial send (${sendResult.contactsSent}/${sendResult.totalContacts}) in ${uploadDuration}s`);
-    } else if (sendResult?.timeout) {
-      console.log(`[StatusBot] ⏱️ Status id=${item.id} type=${item.status_type} TIMEOUT after ${uploadDuration}s (treating as success)`);
+    if (isPartialSend) {
+      console.log(`[StatusBot] ⚠️ Status id=${item.id} type=${item.status_type} PARTIAL send (${sendResult.contactsSent}/${sendResult.totalContacts}) in ${uploadDuration}s`);
+      // User-facing partial notification INTENTIONALLY suppressed — admin gets
+      // Telegram alerts instead (at 20-min mark and final 2h give-up) from the
+      // auto-retry path below. Users should not be notified about partial sends.
+    } else if (isTimeout) {
+      console.log(`[StatusBot] ⏱️ Status id=${item.id} type=${item.status_type} TIMEOUT after ${uploadDuration}s — marked as uncertain`);
+      await sendStatusNotification(item, true, null, { timeout: true });
     } else {
       console.log(`[StatusBot] ✅ Status id=${item.id} type=${item.status_type} confirmed uploaded in ${uploadDuration}s`);
+      await sendStatusNotification(item, true);
     }
-
-    await sendStatusNotification(item, true);
 
     activeItemTokens.delete(item.id);
     emitToAdmin('statusbot:processing_end', { id: item.id, success: true, timestamp: new Date().toISOString() });
@@ -443,7 +648,16 @@ async function processQueue() {
           WHERE q4.connection_id = q.connection_id
             AND q4.queue_status IN ('pending', 'scheduled')
             AND q4.created_at < q.created_at
-            AND (q4.retry_count > 0 OR q4.scheduled_for IS NULL OR q4.scheduled_for <= NOW())
+            AND (
+              q4.retry_count > 0
+              OR q4.first_attempted_at IS NOT NULL  -- already started at least once → still in flight
+              OR q4.scheduled_for IS NULL
+              OR q4.scheduled_for <= NOW()
+            )
+            -- Partial items that have been retrying >20min stop blocking the queue
+            AND COALESCE(q4.partial_abandoned, false) = false
+            -- Items with manually-cancelled retry don't block siblings
+            AND COALESCE(q4.retry_cancelled, false) = false
         )
         AND NOT EXISTS (
           SELECT 1 FROM status_bot_queue q3
@@ -464,12 +678,29 @@ async function processQueue() {
               )
             )
         )
+        -- Per-connection block: only 'failed' items (hard errors) block next
+        -- items for 4 hours — gives admin a chance to resume/retry before new
+        -- sends pile up. Partial 'sent' items are NOT blocked here because the
+        -- new auto-retry system (first_attempted_at + partial_abandoned) keeps
+        -- them cycling in the pending queue without blocking siblings.
+        AND NOT EXISTS (
+          SELECT 1 FROM status_bot_queue q5
+          WHERE q5.connection_id = q.connection_id
+            AND q5.created_at < q.created_at
+            AND q5.queue_status = 'failed'
+            AND q5.created_at > NOW() - INTERVAL '4 hours'
+        )
       ORDER BY q.created_at ASC
       LIMIT $2
     `, [delaySeconds, Math.ceil(maxTotal * 3)]);
 
     if (candidates.rows.length === 0) {
-      // Diagnose blocked items
+      // Diagnose blocked items with accurate reasons.
+      // Previous version fell through to "restriction_lifted=false" as a fallback
+      // even when restrictions had already elapsed — misleading because the real
+      // blocker was a per-connection rule (older partial, older pending, recent
+      // send delay, capacity, etc.). Now we check each candidate clause in the
+      // same order as the main SELECT and report the first one that hits.
       const blockedResult = await db.query(`
         SELECT q.id, q.connection_id, q.queue_status, q.created_at,
                c.connection_status, c.restriction_lifted, c.short_restriction_until,
@@ -485,7 +716,14 @@ async function processQueue() {
         const notConnected = row.connection_status !== 'connected';
         const shortUntil = row.short_restriction_until ? new Date(row.short_restriction_until) : null;
         const shortRestriction = shortUntil && shortUntil > now;
-        const restrictionActive = row.restriction_lifted !== true;
+
+        // Reproduce the main SQL's restriction clause in JS to know whether it
+        // actually blocks this item, or whether it passed and something else blocks.
+        const restrictionUntilActive = row.restriction_until && new Date(row.restriction_until) > now;
+        const base = row.last_connected_at || row.first_connected_at;
+        const fallbackUnlocks = base ? new Date(new Date(base).getTime() + 24 * 60 * 60 * 1000) : null;
+        const initial24hActive = row.first_connected_at && !row.restriction_until && fallbackUnlocks && fallbackUnlocks > now;
+        const restrictionBlocks = row.restriction_lifted !== true && row.first_connected_at && (restrictionUntilActive || initial24hActive);
 
         let reason;
         if (notConnected) {
@@ -493,19 +731,44 @@ async function processQueue() {
         } else if (shortRestriction) {
           const minsLeft = Math.ceil((shortUntil - now) / 60000);
           reason = `short restriction active, unlocks in ${minsLeft}min`;
-        } else if (restrictionActive) {
-          if (row.restriction_until) {
-            const left = new Date(row.restriction_until) - now;
-            if (left > 0) reason = `restriction_until active, ${(left / 3600000).toFixed(1)}h left (${row.restriction_until})`;
-          }
-          if (!reason) {
-            const base = row.last_connected_at || row.first_connected_at;
-            const unlocks = base ? new Date(new Date(base).getTime() + 24 * 60 * 60 * 1000) : null;
-            if (unlocks && unlocks > now) reason = `24h restriction, ${((unlocks - now) / 3600000).toFixed(1)}h left`;
-          }
-          if (!reason) reason = `restriction_lifted=${row.restriction_lifted}`;
+        } else if (restrictionBlocks && restrictionUntilActive) {
+          const left = new Date(row.restriction_until) - now;
+          reason = `restriction_until active, ${(left / 3600000).toFixed(1)}h left`;
+        } else if (restrictionBlocks && initial24hActive) {
+          reason = `24h restriction, ${((fallbackUnlocks - now) / 3600000).toFixed(1)}h left`;
         } else {
-          reason = `per-connection delay or source limit`;
+          // Restriction passed — the blocker is a per-connection rule. Run small
+          // queries to find out which one.
+          const diag = await db.query(`
+            SELECT
+              (SELECT COUNT(*) FROM status_bot_queue q2
+                 WHERE q2.connection_id = $1 AND q2.queue_status = 'processing')::int AS processing_same_conn,
+              (SELECT COUNT(*) FROM status_bot_queue q4
+                 WHERE q4.connection_id = $1 AND q4.queue_status IN ('pending','scheduled')
+                   AND q4.created_at < $2
+                   AND (q4.retry_count > 0 OR q4.scheduled_for IS NULL OR q4.scheduled_for <= NOW()))::int AS older_pending,
+              (SELECT COUNT(*) FROM status_bot_queue q3
+                 WHERE q3.connection_id = $1 AND q3.queue_status = 'sent'
+                   AND q3.sent_timed_out IS NOT TRUE
+                   AND q3.sent_at > NOW() - ($3 * interval '1 second'))::int AS recent_sent,
+              (SELECT COUNT(*) FROM status_bot_queue q5
+                 WHERE q5.connection_id = $1 AND q5.created_at < $2
+                   AND q5.queue_status = 'failed'
+                   AND q5.created_at > NOW() - INTERVAL '4 hours')::int AS unresolved_older
+          `, [row.connection_id, row.created_at, delaySeconds]);
+          const d = diag.rows[0] || {};
+          if (d.processing_same_conn > 0) {
+            reason = 'connection already has an item processing (serialized per user)';
+          } else if (d.older_pending > 0) {
+            reason = `older pending/scheduled item on this connection — waits for it first`;
+          } else if (d.unresolved_older > 0) {
+            reason = 'older failed item within 4h — blocks next item until admin resolves';
+          } else if (d.recent_sent > 0) {
+            reason = `waiting ${delaySeconds}s delay after previous send on this connection`;
+          } else {
+            // Must be global capacity (total parallel or per-source limit)
+            reason = 'at parallel capacity — will pick up next tick';
+          }
         }
         // Only log if reason changed or hasn't been logged in the last 5 minutes
         const cacheKey = `${row.id}:${reason}`;
@@ -541,7 +804,9 @@ async function processQueue() {
     for (const item of toProcess) {
       const claimed = await db.query(`
         UPDATE status_bot_queue
-        SET queue_status = 'processing', processing_started_at = NOW()
+        SET queue_status = 'processing',
+            processing_started_at = NOW(),
+            first_attempted_at = COALESCE(first_attempted_at, NOW())
         WHERE id = $1 AND queue_status IN ('pending', 'scheduled')
         RETURNING id
       `, [item.id]);
@@ -702,11 +967,25 @@ async function fetchAndCacheContacts(baseUrl, apiKey, sessionName, connectionId)
   } catch (err) {
     console.warn(`[StatusBot Contacts] Could not fetch contacts from WAHA: ${err.message}`);
   }
+  // The raw cache is preserved (LIDs are still needed for resolution on send).
+  // But the displayed count must only reflect VALID, UNIQUE, deliverable phones:
+  //   • exclude LIDs (@lid), groups (@g.us), newsletters (@newsletter)
+  //   • dedupe by phone digits
+  const uniquePhones = new Set();
+  for (const c of contacts) {
+    const id = c?.id;
+    if (typeof id !== 'string') continue;
+    if (id.includes('@lid') || id.includes('@g.us') || id.includes('@newsletter')) continue;
+    const phone = id.replace(/@.*/, '').replace(/\D/g, '');
+    if (!phone || phone.length < 8) continue;
+    uniquePhones.add(phone);
+  }
+  const displayCount = uniquePhones.size;
   await db.query(
     `UPDATE status_bot_connections
      SET contacts_cache = $1, contacts_cache_synced_at = NOW(), contacts_cache_count = $2
      WHERE id = $3`,
-    [JSON.stringify(contacts), contacts.length, connectionId]
+    [JSON.stringify(contacts), displayCount, connectionId]
   ).catch(e => console.error('[StatusBot Contacts] Cache save error:', e.message));
   return contacts;
 }
@@ -744,52 +1023,118 @@ async function resolveLidMappings(baseUrl, apiKey, sessionName, userId, lidIds) 
     return lidToPhone;
   }
 
-  // 3. Fetch from WAHA /lids API
-  // Fetch unresolved LIDs from WAHA
+  // 3. Fetch from WAHA /lids API — PAGINATED
+  // WAHA's /lids endpoint silently caps results despite ?limit=999999.
+  // Loop over pages until we get an empty page (or hit a hard ceiling).
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 50; // safety: up to 50,000 LIDs
+  const newRows = [];
   try {
-    const lidsData = await wahaSession.makeRequest(
-      baseUrl, apiKey, 'GET',
-      `/api/${sessionName}/lids?limit=999999&offset=0`
-    );
+    let offset = 0;
+    let totalFromWaha = 0;
+    let consecutiveEmpty = 0;
+    for (let pageIdx = 0; pageIdx < MAX_PAGES; pageIdx++) {
+      const page = await wahaSession.makeRequest(
+        baseUrl, apiKey, 'GET',
+        `/api/${sessionName}/lids?limit=${PAGE_SIZE}&offset=${offset}`
+      ).catch(e => {
+        console.error(`${LOG} ❌ /lids page offset=${offset} error: ${e.message}`);
+        return null;
+      });
 
-    if (Array.isArray(lidsData) && lidsData.length > 0) {
-      // Process WAHA LID mappings
+      if (!Array.isArray(page) || page.length === 0) {
+        consecutiveEmpty++;
+        if (consecutiveEmpty >= 2) break; // 2 empty pages → done
+        offset += PAGE_SIZE;
+        continue;
+      }
+      consecutiveEmpty = 0;
+      totalFromWaha += page.length;
 
-      // Build bulk upsert to cache all mappings
-      const values = [];
-      const params = [];
-      let idx = 1;
-      for (const entry of lidsData) {
+      for (const entry of page) {
         const lid = entry.lid?.replace(/@.*/, '');
         const phone = entry.pn?.replace(/@.*/, '');
         if (!lid || !phone) continue;
-
-        // Populate return map
-        lidToPhone.set(lid, phone);
-
-        // Prepare DB upsert
-        values.push(`($${idx++}, $${idx++}, $${idx++}, NOW(), NOW())`);
-        params.push(userId, lid, phone);
+        if (!lidToPhone.has(lid)) lidToPhone.set(lid, phone);
+        newRows.push([userId, lid, phone]);
       }
 
-      // Bulk upsert into whatsapp_lid_mapping
-      if (values.length > 0) {
+      // If WAHA returned less than a full page, we're at the end
+      if (page.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
+    if (totalFromWaha > 0) {
+      console.log(`${LOG} Paginated /lids fetched ${totalFromWaha} entries across ${Math.ceil(totalFromWaha / PAGE_SIZE)} pages`);
+    }
+  } catch (e) {
+    console.error(`${LOG} ❌ WAHA /lids paginated fetch error (session=${sessionName}): ${e.message}`);
+  }
+
+  // Bulk upsert all new rows
+  if (newRows.length > 0) {
+    try {
+      const CHUNK = 500;
+      for (let i = 0; i < newRows.length; i += CHUNK) {
+        const chunk = newRows.slice(i, i + CHUNK);
+        const values = [];
+        const params = [];
+        let idx = 1;
+        for (const [u, l, p] of chunk) {
+          values.push(`($${idx++}, $${idx++}, $${idx++}, NOW(), NOW())`);
+          params.push(u, l, p);
+        }
         await db.query(
           `INSERT INTO whatsapp_lid_mapping (user_id, lid, phone, created_at, updated_at)
            VALUES ${values.join(',')}
            ON CONFLICT (user_id, lid) DO UPDATE SET phone = EXCLUDED.phone, updated_at = NOW()`,
           params
-        ).catch(e => console.warn(`${LOG} DB cache save error: ${e.message}`));
+        );
       }
+    } catch (e) {
+      console.warn(`${LOG} DB upsert error: ${e.message}`);
     }
-  } catch (e) {
-    console.error(`${LOG} ❌ WAHA /lids API error (session=${sessionName}): ${e.message}`);
-    if (e.response?.data) console.error(`${LOG} Response:`, JSON.stringify(e.response.data).slice(0, 500));
   }
 
+  // 4. Per-LID fallback for any STILL unresolved — try /contacts/check-exists for each
+  // (limited fan-out to avoid hammering WAHA)
   const stillUnresolved = rawLids.filter(lid => !lidToPhone.has(lid));
-  if (stillUnresolved.length > 0) {
-    console.warn(`${LOG} ⚠️ ${stillUnresolved.length} LIDs could not be resolved — will be excluded from status send`);
+  if (stillUnresolved.length > 0 && stillUnresolved.length <= 200) {
+    // Only do per-LID lookup for small remainders — large remainders mean WAHA can't help
+    const fallbackHits = [];
+    for (const lid of stillUnresolved.slice(0, 200)) {
+      try {
+        const r = await wahaSession.makeRequest(
+          baseUrl, apiKey, 'GET',
+          `/api/contacts/check-exists?phone=${encodeURIComponent(lid)}&session=${sessionName}`
+        );
+        const phone = r?.numberExists ? (r?.chatId?.replace(/@.*/, '') || null) : null;
+        if (phone && /^\d{7,15}$/.test(phone)) {
+          lidToPhone.set(lid, phone);
+          fallbackHits.push([userId, lid, phone]);
+        }
+      } catch { /* skip */ }
+    }
+    if (fallbackHits.length) {
+      console.log(`${LOG} Fallback per-LID lookup recovered ${fallbackHits.length}/${stillUnresolved.length}`);
+      const values = [];
+      const params = [];
+      let idx = 1;
+      for (const [u, l, p] of fallbackHits) {
+        values.push(`($${idx++}, $${idx++}, $${idx++}, NOW(), NOW())`);
+        params.push(u, l, p);
+      }
+      await db.query(
+        `INSERT INTO whatsapp_lid_mapping (user_id, lid, phone, created_at, updated_at)
+         VALUES ${values.join(',')}
+         ON CONFLICT (user_id, lid) DO UPDATE SET phone = EXCLUDED.phone, updated_at = NOW()`,
+        params
+      ).catch(() => {});
+    }
+  }
+
+  const finalUnresolved = rawLids.filter(lid => !lidToPhone.has(lid));
+  if (finalUnresolved.length > 0) {
+    console.warn(`${LOG} ⚠️ ${finalUnresolved.length} LIDs UNRESOLVABLE — will be excluded from status send (WAHA does not accept LIDs in /status)`);
   }
   if (rawLids.length > 0) console.log(`${LOG} LIDs resolved: ${lidToPhone.size}/${rawLids.length}`);
 
@@ -830,7 +1175,7 @@ async function logContactSends(historyId, queueId, contacts, batchNum, success, 
  * - First timeout → wait 1 minute → continue
  * - Second timeout → stop, save total contacts reached
  */
-async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile, processingToken, viewersOnly = false }) {
+async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile, processingToken, viewersOnly = false, nonViewersOnly = false }) {
   const content = queueItem.content;
   const BATCH_SIZE = await getSettingFloat('statusbot_contacts_batch_size', 500);
   const CALL_TIMEOUT_MS = await getSettingFloat('statusbot_contacts_timeout_ms', 120000);  // 2 minutes per batch
@@ -843,45 +1188,83 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
 
   console.log(`${LOG_PREFIX} ▶️ Starting contacts-format send. type=${queueItem.status_type} messageId=${messageId} historyId=${historyId} viewersOnly=${viewersOnly}`);
 
-  // 0. On retry: find contacts that were already successfully sent
+  // 0. On retry OR continuation: find contacts that were already successfully sent.
+  //    Walk the continuation_of chain to collect ALL prior queue ids,
+  //    then find ALL history ids that belong to any of them,
+  //    then pull the union of their contact_sends.
   const alreadySentPhones = new Set();
-  if (historyId) {
-    const sentResult = await db.query(
-      `SELECT DISTINCT phone FROM status_bot_contact_sends WHERE history_id = $1 AND success = true`,
-      [historyId]
+  try {
+    const chainRes = await db.query(`
+      WITH RECURSIVE chain AS (
+        SELECT id, continuation_of FROM status_bot_queue WHERE id = $1
+        UNION ALL
+        SELECT q.id, q.continuation_of FROM status_bot_queue q
+        JOIN chain ch ON q.id = ch.continuation_of
+      )
+      SELECT id FROM chain
+    `, [queueItem.id]);
+    const chainQueueIds = chainRes.rows.map(r => r.id);
+
+    // All history rows linked to any queue in the chain
+    const histRes = await db.query(
+      `SELECT id FROM status_bot_statuses WHERE queue_id = ANY($1::uuid[])`,
+      [chainQueueIds]
     );
-    for (const row of sentResult.rows) {
-      alreadySentPhones.add(row.phone);
+    const historyIds = histRes.rows.map(r => r.id);
+    if (historyId && !historyIds.includes(historyId)) historyIds.push(historyId);
+
+    if (historyIds.length > 0) {
+      const sentResult = await db.query(
+        `SELECT DISTINCT phone FROM status_bot_contact_sends
+         WHERE history_id = ANY($1::uuid[]) AND success = true`,
+        [historyIds]
+      );
+      for (const row of sentResult.rows) alreadySentPhones.add(row.phone);
     }
+
     if (alreadySentPhones.size > 0) {
-      console.log(`${LOG_PREFIX} 🔄 Retry mode: skipping ${alreadySentPhones.size} already-sent contacts`);
+      console.log(`${LOG_PREFIX} 🔄 Resume mode: skipping ${alreadySentPhones.size} already-sent contacts (chain depth=${chainQueueIds.length})`);
     }
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} continuation skip-lookup failed (will resend): ${e.message}`);
   }
 
-  // 1. Get engaged phone numbers ranked by total engagement (views + reactions + replies)
-  //    Most active viewers first, least active last.
+  // Position-based fallback: if the queue row says more contacts were sent than
+  // we found in status_bot_contact_sends (e.g. due to deploy/crash between batch
+  // completion and DB log commit), skip the first N contacts from the ordered list
+  // using the counter as a safety fallback. This prevents re-sending to people who
+  // already got the status when the log table is lossy.
+  let positionSkip = 0;
+  const queuedContactsSent = parseInt(queueItem.contacts_sent || 0);
+  if (queuedContactsSent > alreadySentPhones.size) {
+    positionSkip = queuedContactsSent - alreadySentPhones.size;
+    console.log(`${LOG_PREFIX} 📍 Position-based fallback: queue counter (${queuedContactsSent}) > logged sends (${alreadySentPhones.size}) — will skip first ${positionSkip} unlogged contacts to prevent duplicates`);
+  }
+
+  // 1. Get engaged phones ordered by MOST RECENT activity (latest viewer first, oldest last).
+  //    This ensures people who viewed recently get the status first.
   const viewersResult = await db.query(`
-    SELECT phone, SUM(cnt) AS total_engagement FROM (
-      SELECT sbv.viewer_phone AS phone, COUNT(*) AS cnt
+    SELECT phone, MAX(last_ts) AS last_ts FROM (
+      SELECT sbv.viewer_phone AS phone, MAX(sbv.viewed_at) AS last_ts
       FROM status_bot_views sbv
       JOIN status_bot_statuses sbs ON sbs.id = sbv.status_id
       WHERE sbs.connection_id = $1
       GROUP BY sbv.viewer_phone
       UNION ALL
-      SELECT sbr.reactor_phone AS phone, COUNT(*) AS cnt
+      SELECT sbr.reactor_phone AS phone, MAX(sbr.reacted_at) AS last_ts
       FROM status_bot_reactions sbr
       JOIN status_bot_statuses sbs ON sbs.id = sbr.status_id
       WHERE sbs.connection_id = $1
       GROUP BY sbr.reactor_phone
       UNION ALL
-      SELECT sbrep.replier_phone AS phone, COUNT(*) AS cnt
+      SELECT sbrep.replier_phone AS phone, MAX(sbrep.replied_at) AS last_ts
       FROM status_bot_replies sbrep
       JOIN status_bot_statuses sbs ON sbs.id = sbrep.status_id
       WHERE sbs.connection_id = $1
       GROUP BY sbrep.replier_phone
     ) engaged
     GROUP BY phone
-    ORDER BY total_engagement DESC
+    ORDER BY last_ts DESC NULLS LAST
   `, [queueItem.connection_id]);
   const viewerPhones = new Set(viewersResult.rows.map(r => r.phone));
   // Ordered array: most engaged first
@@ -961,14 +1344,64 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       if (lidToPhone.size > 0) console.log(`${LOG_PREFIX} Resolved ${lidToPhone.size}/${lidContacts.length} LID contacts`);
     }
 
-    // Build ordered contact list: own phone → viewers (ranked by engagement) → non-viewers
+    // Build ordered contact list: own phone → viewers (ranked by recent activity) → non-viewers
     // IMPORTANT: Convert all LID contacts to phone@c.us format — LIDs cannot receive statuses
     const seen = new Set();
     const ownPhone = ownId ? ownId.replace(/@.*/, '') : null;
     if (ownPhone) seen.add(ownPhone);
     orderedContacts = [];
-    if (ownPhone && !alreadySentPhones.has(ownPhone)) {
+    // Own phone: only include if NOT non-viewers-only (they should always see their own status)
+    if (ownPhone && !alreadySentPhones.has(ownPhone) && !nonViewersOnly) {
       orderedContacts.push(ownId);
+    }
+
+    // Load user-imported contacts (manual/CSV/VCF/Google). Two scopes are merged:
+    //   • connection-level list (authorized_number_id IS NULL) — applied when
+    //     use_imported_contacts is enabled on the connection
+    //   • per-sender list (authorized_number_id = <id>) — applied when the current
+    //     upload's source_phone matches an authorized number with can_import_contacts
+    // These are appended to the contacts-format pipeline on top of the WAHA cache list.
+    let importedPhones = [];
+    try {
+      const connFlagRes = await db.query(
+        `SELECT use_imported_contacts FROM status_bot_connections WHERE id = $1`,
+        [queueItem.connection_id]
+      );
+      const useImported = connFlagRes.rows[0]?.use_imported_contacts !== false;
+
+      const clauses = [];
+      const params = [];
+      let pIdx = 1;
+      if (useImported) {
+        clauses.push(`(connection_id = $${pIdx} AND authorized_number_id IS NULL)`);
+        params.push(queueItem.connection_id);
+        pIdx++;
+      }
+      // Find the authorized sender (if any) for this upload
+      if (queueItem.source === 'whatsapp' && queueItem.source_phone) {
+        const senderRes = await db.query(
+          `SELECT id FROM status_bot_authorized_numbers
+            WHERE connection_id = $1 AND phone_number = $2
+              AND is_active = true AND can_import_contacts = true
+            LIMIT 1`,
+          [queueItem.connection_id, queueItem.source_phone]
+        );
+        const senderId = senderRes.rows[0]?.id;
+        if (senderId) {
+          clauses.push(`authorized_number_id = $${pIdx}`);
+          params.push(senderId);
+          pIdx++;
+        }
+      }
+      if (clauses.length > 0) {
+        const impRes = await db.query(
+          `SELECT DISTINCT phone FROM status_bot_imported_contacts WHERE ${clauses.join(' OR ')}`,
+          params
+        );
+        importedPhones = impRes.rows.map(r => r.phone).filter(Boolean);
+      }
+    } catch (e) {
+      console.warn(`${LOG_PREFIX} imported-contacts fetch failed (non-fatal): ${e.message}`);
     }
 
     // First pass: build phone → JID map from all WAHA contacts
@@ -1004,35 +1437,102 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       }
     }
 
-    // Add viewers in engagement-ranked order (most active first)
-    for (const phone of viewerPhonesRanked) {
-      const jid = phoneToJid.get(phone);
-      if (jid) orderedContacts.push(jid);
+    // Append imported contacts into the non-viewers bucket (skip ones already seen
+    // in WAHA cache / viewers / own phone / already-sent). These become reachable
+    // even if WAHA never learned the phone.
+    let importedAdded = 0;
+    for (const phone of importedPhones) {
+      if (!phone) continue;
+      if (phone === ownPhone) continue;
+      if (seen.has(phone)) continue;
+      if (alreadySentPhones.has(phone)) continue;
+      // Basic sanity: numeric, 8-15 digits (same guard as normalizer)
+      if (!/^\d{8,15}$/.test(phone)) continue;
+      seen.add(phone);
+      const jid = `${phone}@c.us`;
+      phoneToJid.set(phone, jid);
+      if (viewerPhones.has(phone)) {
+        // If an imported phone is also a past viewer, it'll be picked up via viewerPhonesRanked
+        continue;
+      }
+      nonViewers.push(jid);
+      importedAdded++;
+    }
+    if (importedAdded > 0) {
+      console.log(`${LOG_PREFIX} ➕ Added ${importedAdded} imported contacts to non-viewers bucket (total imported: ${importedPhones.length})`);
     }
 
-    if (skippedLids > 0) {
-      console.log(`${LOG_PREFIX} ⚠️ Skipped ${skippedLids} unresolvable LID contacts`);
+    if (nonViewersOnly) {
+      // Phase-3 mode: only send to people who are NOT viewers
+      orderedContacts.push(...nonViewers);
+      console.log(`${LOG_PREFIX} nonViewersOnly: ${orderedContacts.length} contacts (skipped ${skippedLids} LIDs, ${viewerPhones.size} viewers excluded)`);
+    } else {
+      // Normal full mode: viewers (most recent first) then non-viewers
+      for (const phone of viewerPhonesRanked) {
+        const jid = phoneToJid.get(phone);
+        if (jid) orderedContacts.push(jid);
+      }
+      if (skippedLids > 0) {
+        console.log(`${LOG_PREFIX} ⚠️ Skipped ${skippedLids} unresolvable LID contacts`);
+      }
+      orderedContacts.push(...nonViewers);
     }
-    orderedContacts.push(...nonViewers);
   }
-  // Safety filter: remove LID contacts AND fake phone numbers (digits > 15 = LID disguised as phone)
+  // Safety filter: remove LID contacts AND fake phone numbers (> 15 digits = LID disguised as phone)
   const preFilterCount = orderedContacts.length;
   orderedContacts = orderedContacts.filter(jid => {
     if (jid.includes('@lid')) return false;
-    // Real phone numbers have max ~12 digits (with country code). Longer = LID disguised as phone
+    // E.164 caps real phones at 15 digits. Longer = LID disguised as phone.
     const digits = jid.split('@')[0];
-    if (digits.length > 12) return false;
+    if (digits.length > 15) return false;
     return true;
   });
   if (orderedContacts.length < preFilterCount) {
     console.warn(`${LOG_PREFIX} ⚠️ Safety filter removed ${preFilterCount - orderedContacts.length} LID contacts from final list`);
   }
 
+  // Apply position-based skip (post-filtering) so recovery truly advances past already-sent contacts
+  if (positionSkip > 0 && positionSkip < orderedContacts.length) {
+    const dropped = orderedContacts.slice(0, positionSkip);
+    orderedContacts = orderedContacts.slice(positionSkip);
+    console.log(`${LOG_PREFIX} 📍 Dropped first ${dropped.length} contacts (position-based resume). Remaining: ${orderedContacts.length}`);
+  }
+
+  // Persist delivery_summary so admin/UI can see exactly what we tried to send and why some dropped.
+  // This is the "ground truth" that feeds the watchdog + alerts.
+  try {
+    const _allContactsForSummary = (typeof allContacts !== 'undefined' && Array.isArray(allContacts)) ? allContacts : [];
+    const _lidsTotal = _allContactsForSummary.filter(c => c?.id?.includes?.('@lid')).length;
+    const _direct = _allContactsForSummary.filter(c => c?.id && !c.id.includes('@lid') && !c.id.includes('@g.us')).length;
+    const _groups = _allContactsForSummary.filter(c => c?.id?.includes?.('@g.us')).length;
+    const summary = {
+      mode: viewersOnly ? 'viewers_only' : 'contacts',
+      contacts_in_waha: _allContactsForSummary.length || null,
+      lids_in_waha: _lidsTotal || 0,
+      direct_in_waha: _direct || 0,
+      groups_in_waha: _groups || 0,
+      lids_resolved: (typeof lidToPhone !== 'undefined' && lidToPhone?.size) || 0,
+      lids_unresolvable: Math.max(0, _lidsTotal - ((typeof lidToPhone !== 'undefined' && lidToPhone?.size) || 0)),
+      already_sent_skipped: alreadySentPhones.size,
+      final_recipient_count: orderedContacts.length,
+      computed_at: new Date().toISOString(),
+    };
+    await db.query(
+      `UPDATE status_bot_queue
+       SET delivery_summary = COALESCE(delivery_summary, '{}'::jsonb) || $2::jsonb
+       WHERE id = $1`,
+      [queueItem.id, JSON.stringify(summary)]
+    );
+  } catch (e) {
+    console.warn(`${LOG_PREFIX} delivery_summary save failed (non-fatal): ${e.message}`);
+  }
+
   const VIEWER_MEGA_BATCH_CAP = await getSettingFloat('statusbot_contacts_viewer_batch_cap', 5000);
   const WAVE_DELAY_MS = await getSettingFloat('statusbot_contacts_wave_delay_ms', 30000); // 30s between non-viewer waves
 
   // 5. Build batches
-  const previouslySent = alreadySentPhones.size; // contacts sent in prior attempts
+  // Prior attempts total: logged already-sent + any position-skipped contacts
+  const previouslySent = alreadySentPhones.size + positionSkip;
   let totalSent = 0;
   let consecutiveTimeouts = 0;
   let stoppedEarly = false;
@@ -1093,8 +1593,11 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   console.log(`${LOG_PREFIX} 📋 ${orderedContacts.length} contacts | ${viewerBatchCount} viewer + ${nonViewerBatchCount} non-viewer batches | parallelism=${PARALLEL_BATCHES}`);
 
   // Process batches in waves of PARALLEL_BATCHES
+  // IMPORTANT: viewer batches and non-viewer batches are NEVER mixed in the same wave.
+  // This guarantees all viewers are sent BEFORE any non-viewer starts.
   let isFirstNonViewerWave = true;
-  for (let waveStart = 0; waveStart < allBatches.length; waveStart += PARALLEL_BATCHES) {
+  let waveStart = 0;
+  while (waveStart < allBatches.length) {
     if (stoppedEarly) break;
 
     // Ownership check: if this item was reset and reclaimed by another process, abort
@@ -1111,9 +1614,56 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       break;
     }
 
-    const wave = allBatches.slice(waveStart, waveStart + PARALLEL_BATCHES);
+    // Graceful shutdown check at every wave boundary — pause cleanly between batches
+    // so deploys/rebuilds don't interrupt mid-batch. The item stays in 'processing'
+    // briefly until shutdown completes; on restart, the queue processor's startup
+    // routine resets stuck 'processing' items back to 'pending', and our
+    // continuation chain + already_sent_phones skip-logic resumes from where we left off.
+    if (gracefulShutdownRequested) {
+      console.log(`${LOG_PREFIX} 🛑 Graceful shutdown requested — pausing at wave boundary (sent ${totalSent} so far) — will resume after restart`);
+      stoppedEarly = true;
+      break;
+    }
 
-    // Add 30s delay between non-viewer waves (not the first one right after viewers)
+    // User-deleted / state-transition check:
+    //  - 'cancelled' OR deleted_at → user deleted, never resume
+    //  - 'sent' / 'failed' → admin force-stopped and flipped the DB state; exit
+    //    (the forceStopItems in-memory Set is the signal but DB state is authoritative)
+    //  - anything other than 'processing' → also stop (defensive)
+    const cancelCheck = await db.query(
+      `SELECT q.queue_status, s.deleted_at
+       FROM status_bot_queue q
+       LEFT JOIN status_bot_statuses s ON s.queue_id = q.id
+       WHERE q.id = $1`,
+      [queueItem.id]
+    );
+    const currentState = cancelCheck.rows[0]?.queue_status;
+    if (currentState === 'cancelled' || cancelCheck.rows[0]?.deleted_at) {
+      console.log(`${LOG_PREFIX} 🗑️ Status was deleted/cancelled by user — stopping send (sent ${totalSent} so far)`);
+      stoppedEarly = true;
+      break;
+    }
+    if (currentState && currentState !== 'processing') {
+      console.log(`${LOG_PREFIX} ⏹️ Status queue_status changed to '${currentState}' (likely admin stop) — exiting batch loop`);
+      stoppedEarly = true;
+      // Persist the current progress so contacts_sent reflects what we sent.
+      // Don't touch queue_status — whoever changed it owns the final state.
+      await db.query(
+        `UPDATE status_bot_queue SET contacts_sent = GREATEST(contacts_sent, $2) WHERE id = $1`,
+        [queueItem.id, previouslySent + totalSent]
+      ).catch(() => {});
+      break;
+    }
+
+    // Build the wave: only include batches of the SAME type (viewer OR non-viewer)
+    const firstType = allBatches[waveStart].isViewerBatch;
+    const wave = [];
+    for (let i = waveStart; i < allBatches.length && wave.length < PARALLEL_BATCHES; i++) {
+      if (allBatches[i].isViewerBatch !== firstType) break; // stop at type boundary
+      wave.push(allBatches[i]);
+    }
+
+    // Transition from viewers → non-viewers: mark viewers_done and apply delay
     if (!wave[0].isViewerBatch) {
       if (isFirstNonViewerWave) {
         isFirstNonViewerWave = false;
@@ -1124,6 +1674,10 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
         ).catch(() => {});
         console.log(`${LOG_PREFIX} ✅ Viewers phase complete — connection unblocked for next status`);
         emitToAdmin('statusbot:viewers_done', { id: queueItem.id, connectionId: queueItem.connection_id });
+        // Short pause before starting non-viewers so viewers phase is clearly separated
+        if (WAVE_DELAY_MS > 0) {
+          await new Promise(resolve => setTimeout(resolve, WAVE_DELAY_MS));
+        }
       } else if (WAVE_DELAY_MS > 0) {
         await new Promise(resolve => setTimeout(resolve, WAVE_DELAY_MS));
       }
@@ -1157,7 +1711,7 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
             setTimeout(() => reject(new Error('BATCH_TIMEOUT')), batchTimeoutMs)
           );
           await Promise.race([sendPromise, timeoutPromise]);
-          // Success logged at wave level, not per-batch
+          // Log contacts as sent immediately after batch confirmation (resume-safe)
           await logContactSends(historyId, queueItem.id, batch, batchNum, true, null);
           return { batchNum, sent: batch.length, timedOut: false, error: false };
         } catch (err) {
@@ -1201,11 +1755,23 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
       break;
     }
 
-    // Heartbeat + progress: keep processing_started_at fresh and update send progress
-    // Report cumulative totals (including contacts sent in prior retry attempts)
-    // Only update if still in 'processing' state (prevents fighting with stuck reset)
-    const cumulativeSent = previouslySent + totalSent;
-    const cumulativeTotal = previouslySent + orderedContacts.length;
+    // Heartbeat + progress: keep processing_started_at fresh and update send progress.
+    //
+    // IMPORTANT — historical bug fix:
+    //   contacts_total MUST represent the total unique target contacts across
+    //   the whole send (sent so far + still-to-go), NOT accumulate extras on
+    //   every retry. Previously we used `previouslySent + orderedContacts.length`,
+    //   where `previouslySent = alreadySentPhones.size + positionSkip`. Because
+    //   `orderedContacts` is already `allContacts ∖ alreadySentPhones`, adding
+    //   positionSkip on top caused compounding inflation across retries —
+    //   Sherman's queue row showed 154K when the real count is ~21K.
+    //
+    // The correct math:
+    //   cumulativeSent  = alreadySentPhones.size (logged successes) + totalSent (this run)
+    //   cumulativeTotal = alreadySentPhones.size + orderedContacts.length
+    // This gives a stable total equal to the distinct phones we plan to reach.
+    const cumulativeSent  = alreadySentPhones.size + totalSent;
+    const cumulativeTotal = alreadySentPhones.size + orderedContacts.length;
     await db.query(
       `UPDATE status_bot_queue SET processing_started_at = NOW(), contacts_sent = $2, contacts_total = $3 WHERE id = $1 AND queue_status = 'processing'`,
       [queueItem.id, cumulativeSent, cumulativeTotal]
@@ -1225,6 +1791,9 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
     } else {
       consecutiveTimeouts = 0; // reset if at least one batch succeeded without timeout
     }
+
+    // Advance by actual wave size (may be < PARALLEL_BATCHES due to type boundary)
+    waveStart += wave.length;
   }
 
   // If we never hit non-viewer wave (all contacts were viewers or skipped), mark viewers_done now
@@ -1235,8 +1804,9 @@ async function sendStatusWithContacts(queueItem, { baseUrl, apiKey, sessionName,
   }
 
   const totalElapsedSec = Math.round((Date.now() - startTime) / 1000);
-  const cumulativeFinalSent = previouslySent + totalSent;
-  const cumulativeFinalTotal = previouslySent + orderedContacts.length;
+  // Use the same non-inflating math as the heartbeat (see big comment above).
+  const cumulativeFinalSent  = alreadySentPhones.size + totalSent;
+  const cumulativeFinalTotal = alreadySentPhones.size + orderedContacts.length;
 
   // Save cumulative total contacts reached to connection row and history row
   await Promise.all([
@@ -1349,8 +1919,92 @@ async function sendStatus(queueItem) {
     preConvertedFile = await preConvertMedia(baseUrl, apiKey, sessionName, queueItem.status_type, content);
   }
 
+  // If the upload came from an authorized sender with their own imported
+  // contacts list, route through the contacts-format pipeline regardless of
+  // the connection's configured format. This ensures the sender's personal
+  // contacts (which may not exist in the account's WhatsApp contact list,
+  // so native broadcast wouldn't reach them) are delivered explicitly.
+  if (queueItem.status_send_format !== 'contacts'
+      && queueItem.source === 'whatsapp'
+      && queueItem.source_phone) {
+    try {
+      const senderImp = await db.query(
+        `SELECT COUNT(*)::int AS cnt
+           FROM status_bot_imported_contacts sbic
+           JOIN status_bot_authorized_numbers an ON an.id = sbic.authorized_number_id
+          WHERE an.connection_id = $1 AND an.phone_number = $2
+            AND an.is_active = true AND an.can_import_contacts = true`,
+        [queueItem.connection_id, queueItem.source_phone]
+      );
+      if ((senderImp.rows[0]?.cnt || 0) > 0) {
+        console.log(`[StatusBot] Sender ${queueItem.source_phone} has per-sender imported contacts — routing through contacts format`);
+        queueItem.status_send_format = 'contacts';
+      }
+    } catch (e) {
+      console.warn(`[StatusBot] per-sender imported-contacts check failed (non-fatal): ${e.message}`);
+    }
+  }
+
   // Contacts format: send in batches with explicit contact list
   if (queueItem.status_send_format === 'contacts') {
+    const contactsViewersFirst = queueItem.viewers_first_mode === true || queueItem.viewers_first_mode === 'true';
+
+    if (contactsViewersFirst) {
+      // 3-phase flow for contacts format + viewers_first:
+      // (1) viewers only (most recent first)
+      // (2) default broadcast (WhatsApp native distribution)
+      // (3) remaining contacts (non-viewers) via contacts-format
+      console.log(`[StatusBot] 👁️ Contacts+viewers-first: phase 1 — viewers only`);
+      const phase1 = await sendStatusWithContacts(queueItem, {
+        baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
+        processingToken: queueItem._processingToken,
+        viewersOnly: true,
+      });
+      const viewersSent = phase1?.contactsSent || 0;
+
+      console.log(`[StatusBot] 📢 Contacts+viewers-first: phase 2 — default broadcast`);
+      const phase2 = await sendDefaultBroadcast(queueItem, {
+        baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile,
+      });
+
+      console.log(`[StatusBot] 📋 Contacts+viewers-first: phase 3 — remaining contacts (non-viewers)`);
+      const phase3 = await sendStatusWithContacts(queueItem, {
+        baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
+        processingToken: queueItem._processingToken,
+        nonViewersOnly: true,
+      });
+      const nonViewersSent = phase3?.contactsSent || 0;
+
+      const actualId = phase3?.id || phase2?.id || phase1?.id;
+      if (actualId && actualId !== historyMessageId && historyId) {
+        await db.query(
+          `UPDATE status_bot_statuses SET waha_message_id = $1, updated_at = NOW() WHERE id = $2`,
+          [actualId, historyId]
+        );
+      }
+      // Propagate stoppedEarly from ANY phase — if any piece stopped short,
+      // the whole send is "not done" and should be retried.
+      const anyStoppedEarly = !!(phase1?.stoppedEarly || phase3?.stoppedEarly);
+
+      // Don't sum the phase totals naively — both `contactsSent` and
+      // `totalContacts` from each phase already include alreadySentPhones,
+      // so adding them double-counts and inflates. The truth for distinct
+      // recipients lives in status_bot_contact_sends; query it directly.
+      const truth = await db.query(
+        `SELECT COUNT(DISTINCT phone) FILTER (WHERE success = true) AS sent_cnt,
+                COUNT(DISTINCT phone)                               AS total_cnt
+         FROM status_bot_contact_sends
+         WHERE queue_id = $1`,
+        [queueItem.id]
+      );
+      const truthRow = truth.rows[0] || {};
+      const contactsSent  = parseInt(truthRow.sent_cnt, 10) || 0;
+      const totalContacts = parseInt(truthRow.total_cnt, 10) || 0;
+
+      return { ...phase3, contactsSent, totalContacts, id: actualId, stoppedEarly: anyStoppedEarly };
+    }
+
+    // Default: single-phase contacts send (as before)
     const result = await sendStatusWithContacts(queueItem, {
       baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
       processingToken: queueItem._processingToken,
@@ -1369,20 +2023,32 @@ async function sendStatus(queueItem) {
   const viewersFirst = queueItem.viewers_first_mode === true || queueItem.viewers_first_mode === 'true';
 
   if (viewersFirst) {
-    // ── Viewers-first mode: send to viewers in batches, then broadcast to all ──
-    // Viewers-first mode
+    // ── Viewers-first mode: send to viewers first, then broadcast to all ──
+    // Phase 1: Send to viewers only (contacts mode, ordered by engagement)
+    console.log(`[StatusBot] 👁️ Viewers-first mode: sending to viewers first`);
     const viewersResult = await sendStatusWithContacts(queueItem, {
       baseUrl, apiKey, sessionName, messageId, historyId, preConvertedFile,
       processingToken: queueItem._processingToken,
       viewersOnly: true,
     });
     const viewersSent = viewersResult?.contactsSent || 0;
-    // Viewers done, now broadcast to all
+    console.log(`[StatusBot] 👁️ Viewers phase done: ${viewersSent} viewers sent — now broadcasting to all`);
 
+    // Phase 2: Generic broadcast (no contacts list) — WhatsApp distributes to all followers
+    // This is the classic behavior: viewers get priority, then general broadcast handles the rest
     const broadcastResult = await sendDefaultBroadcast(queueItem, {
       baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile,
     });
-    return { ...broadcastResult, contactsSent: viewersSent };
+    // CRITICAL: propagate stoppedEarly from Phase 1. If viewers phase got cut
+    // short (timeouts, shutdown, etc.), the overall send is NOT done — even
+    // if Phase 2 broadcast succeeded. Otherwise the auto-retry path in
+    // processItem never fires and the item wrongly shows as 'sent' partial.
+    return {
+      ...broadcastResult,
+      contactsSent: viewersSent,
+      totalContacts: viewersResult?.totalContacts || viewersSent,
+      stoppedEarly: !!viewersResult?.stoppedEarly,
+    };
 
   } else {
     // ── Classic mode (default): broadcast to all first, on timeout → send to viewers ──
@@ -1416,6 +2082,13 @@ async function sendStatus(queueItem) {
  * Send a single broadcast call (no contacts list) with timeout handling
  */
 async function sendDefaultBroadcast(queueItem, { baseUrl, apiKey, sessionName, messageId, historyId, historyMessageId, content, preConvertedFile }) {
+  // NOTE: broadcast is INTENTIONALLY re-run on every retry with the same
+  // client-generated messageId. WAHA deduplicates by id (no duplicate status
+  // on owner's WhatsApp), while a repeat call can re-push distribution to
+  // followers who didn't get it the first time. The broadcast_sent_at
+  // column is populated below for diagnostics only — we do NOT short-circuit
+  // based on it. If we ever need admin-visible "was broadcast attempted?"
+  // the column carries the answer.
   const endpoint = `/api/${sessionName}/status/${queueItem.status_type}`;
   const body = buildStatusBody(messageId, null, queueItem.status_type, content, preConvertedFile);
 
@@ -1459,6 +2132,13 @@ async function sendDefaultBroadcast(queueItem, { baseUrl, apiKey, sessionName, m
     `, [actualMessageId, historyId]);
   }
 
+  // Record the LATEST successful broadcast time (diagnostics only — no
+  // short-circuit on this field; by design we re-call the broadcast on retry).
+  await db.query(
+    `UPDATE status_bot_queue SET broadcast_sent_at = NOW() WHERE id = $1`,
+    [queueItem.id]
+  ).catch(err => console.warn(`[StatusBot] broadcast_sent_at update failed (non-fatal): ${err.message}`));
+
   return response;
 }
 
@@ -1497,34 +2177,54 @@ async function getQueueStats() {
  * @param {boolean} success - Whether the upload succeeded
  * @param {string} errorMessage - Error message if failed
  */
-async function sendStatusNotification(item, success, errorMessage = null) {
+async function sendStatusNotification(item, success, errorMessage = null, details = null) {
   try {
-    // Only send notification if source is WhatsApp
-    if (item.source !== 'whatsapp' || !item.source_phone) {
-      return;
+    // Determine the notification target phone
+    // For WhatsApp source: use source_phone
+    // For web source: try to find user's WhatsApp phone from connection
+    let phone = null;
+    if (item.source === 'whatsapp' && item.source_phone) {
+      phone = item.source_phone;
+    } else {
+      // Web/other source - get phone from connection for failure/partial notifications
+      if (!success || details?.partial) {
+        const connResult = await db.query(
+          `SELECT phone_number FROM status_bot_connections WHERE id = $1`,
+          [item.connection_id]
+        );
+        phone = connResult.rows[0]?.phone_number;
+      }
     }
 
-    // For success notifications: only notify for scheduled statuses
-    // "Send now" statuses already got immediate feedback
-    // For failure notifications: always notify (user needs the retry button)
-    if (success) {
-      if (!item.scheduled_for) {
-        return;
-      }
-      // Check if scheduled was within 24 hours (we can notify within WhatsApp window)
+    if (!phone) return;
+
+    // For full success notifications: only notify for scheduled statuses (non-scheduled got immediate feedback)
+    // Timeout is treated like a normal success (the status was sent) — no separate notification.
+    if (success && !details?.partial) {
+      if (!item.scheduled_for) return;
       const scheduledTime = new Date(item.scheduled_for);
       const createdTime = new Date(item.created_at);
       const hoursUntilScheduled = (scheduledTime - createdTime) / (1000 * 60 * 60);
-      if (hoursUntilScheduled > 24) {
-        return;
-      }
+      if (hoursUntilScheduled > 24) return;
     }
 
-    const phone = item.source_phone;
     const statusId = item.status_message_id || item.id;
 
-    if (success) {
-      // Send success notification with action list
+    if (success && details?.partial) {
+      // Partial send notification
+      await cloudApi.sendButtonMessage(
+        phone,
+        `⚠️ הסטטוס עלה חלקית\n\nנשלח ל-${details.sent} מתוך ${details.total} אנשי קשר.\nהמערכת ניסתה מספר פעמים אך לא הצליחה להשלים לכולם.`,
+        [{ id: `queued_retry_${item.id}`, title: '🔄 נסה שוב' }]
+      );
+      await db.query(`
+        UPDATE cloud_api_conversation_states
+        SET state = 'after_send_menu', state_data = $1, last_message_at = NOW(), connection_id = $2
+        WHERE phone_number = $3
+      `, [JSON.stringify({ queuedStatusId: statusId }), item.connection_id, phone]);
+
+    } else if (success) {
+      // Full success notification with action list
       const sections = [{
         title: 'סטטיסטיקות',
         rows: [
@@ -1538,7 +2238,7 @@ async function sendStatusNotification(item, success, errorMessage = null) {
           { id: `queued_delete_${statusId}`, title: '🗑️ מחק סטטוס', description: 'מחק את הסטטוס' },
           { id: 'queued_view_all', title: '📋 כל הסטטוסים', description: 'סטטוסים מתוזמנים ופעילים' },
           { id: 'queued_menu', title: '🏠 תפריט ראשי', description: 'חזור לתפריט' }
-        ]
+        ],
       }];
 
       await cloudApi.sendListMessage(
@@ -1548,23 +2248,20 @@ async function sendStatusNotification(item, success, errorMessage = null) {
         sections
       );
 
-      // Update conversation state to after_send_menu
       await db.query(`
-        UPDATE cloud_api_conversation_states 
+        UPDATE cloud_api_conversation_states
         SET state = 'after_send_menu', state_data = $1, last_message_at = NOW(), connection_id = $2
         WHERE phone_number = $3
       `, [JSON.stringify({ queuedStatusId: statusId }), item.connection_id, phone]);
 
     } else {
-      // Send failure notification with retry button
-      const statusId = item.status_message_id || item.id;
+      // Failure notification with retry button
       await cloudApi.sendButtonMessage(
         phone,
         `❌ שגיאה בהעלאת הסטטוס${item.scheduled_for ? ' המתוזמן' : ''}\n\n${errorMessage || 'שגיאה לא ידועה'}\n\nלחץ למטה כדי לנסות שוב:`,
         [{ id: `queued_retry_${item.id}`, title: '🔄 העלה מחדש' }]
       );
 
-      // Update conversation state so the button click is handled
       await db.query(`
         UPDATE cloud_api_conversation_states
         SET state = 'after_send_menu', state_data = $1, last_message_at = NOW(), connection_id = $2
@@ -1572,7 +2269,7 @@ async function sendStatusNotification(item, success, errorMessage = null) {
       `, [JSON.stringify({ queuedStatusId: statusId }), item.connection_id, phone]);
     }
 
-    console.log(`[StatusBot Queue] Sent notification to ${phone} for status ${item.id} (success: ${success})`);
+    console.log(`[StatusBot Queue] Sent notification to ${phone} for status ${item.id} (success: ${success}, details: ${JSON.stringify(details)})`);
   } catch (notifyError) {
     // Don't fail the whole process if notification fails
     console.error(`[StatusBot Queue] Failed to send notification:`, notifyError.message);
@@ -1594,13 +2291,67 @@ async function retryQueueItem(queueId) {
 }
 
 /**
- * Admin force-stop: signal a processing item to stop immediately.
- * The item will finish its current batch then mark as sent (partial).
+ * Resume a stuck/partial/failed queue item with top priority.
+ * Works on: failed, sent (partial), processing (stuck).
+ * Keeps the same status message ID so it continues from where it left off.
+ * For contacts-format: already-sent contacts are tracked in status_bot_contact_sends and will be skipped.
  */
-function forceStopItem(queueId) {
-  const id = typeof queueId === 'number' ? queueId : parseInt(queueId, 10);
+async function resumeQueueItem(queueId) {
+  const result = await db.query(`
+    UPDATE status_bot_queue
+    SET queue_status = 'pending',
+        error_message = NULL,
+        processing_started_at = NULL,
+        scheduled_for = NOW() - INTERVAL '1 second'
+    WHERE id = $1 AND queue_status IN ('failed', 'sent', 'processing')
+    RETURNING *
+  `, [queueId]);
+  if (result.rows.length === 0) return null;
+
+  // Remove from active tokens if stuck in processing
+  activeItemTokens.delete(queueId);
+
+  console.log(`[StatusBot Queue] ▶️ Admin resumed item ${queueId} (was: ${result.rows[0].queue_status}) — will process with top priority`);
+  return result.rows[0];
+}
+
+/**
+ * Admin force-stop: signal a processing item to stop immediately.
+ *
+ * Two effects:
+ *  1. In-memory signal (forceStopItems + adminStoppedItems Sets) — so the batch
+ *     loop exits at the next wave boundary and marks the item as partial.
+ *  2. Immediate DB update — flip queue_status from 'processing' to 'sent' with
+ *     sent_timed_out=false and the current contacts_sent preserved. This way
+ *     the UI reflects "stopped" instantly instead of waiting for the in-flight
+ *     WAHA call to return.
+ *
+ * IDs are UUIDs — we store them as-is (previous code used parseInt which
+ * silently coerced UUIDs to NaN and broke the stop mechanism entirely).
+ */
+async function forceStopItem(queueId) {
+  const id = String(queueId);
   forceStopItems.add(id);
+  adminStoppedItems.add(id);
   console.log(`[StatusBot Queue] ⏹️ Force-stop requested for item ${id}`);
+
+  try {
+    // Immediate DB transition: 'processing' → 'sent' (partial) so UI + queue
+    // picker both react right away. The batch loop's cancelCheck and queue-status
+    // guard also exit on this state change.
+    const r = await db.query(
+      `UPDATE status_bot_queue
+       SET queue_status = 'sent', sent_at = NOW(), sent_timed_out = false, processing_started_at = NULL
+       WHERE id = $1 AND queue_status = 'processing'
+       RETURNING contacts_sent, contacts_total`,
+      [id]
+    );
+    if (r.rowCount > 0) {
+      console.log(`[StatusBot Queue] ⏹️ Item ${id} marked stopped in DB (sent ${r.rows[0].contacts_sent}/${r.rows[0].contacts_total})`);
+    }
+  } catch (err) {
+    console.warn(`[StatusBot Queue] forceStopItem DB update failed (non-fatal): ${err.message}`);
+  }
 }
 
 module.exports = {
@@ -1618,5 +2369,6 @@ module.exports = {
   invalidateTimeoutCache,
   invalidateSettingsCache,
   retryQueueItem,
+  resumeQueueItem,
   forceStopItem,
 };

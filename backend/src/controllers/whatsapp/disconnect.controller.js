@@ -90,4 +90,46 @@ async function deleteConnection(req, res) {
   }
 }
 
-module.exports = { disconnect, deleteConnection };
+/**
+ * Logout from WhatsApp session (no delete). The WAHA session is logged out
+ * so the user can connect a different phone, and the DB row is removed.
+ * Unlike deleteConnection, this doesn't stop/delete the WAHA session container
+ * itself — it only logs it out so it's ready for a fresh login.
+ */
+async function logoutSessionOnly(req, res) {
+  try {
+    const userId = req.user.id;
+
+    const result = await pool.query(
+      `SELECT id, connection_type, session_name, external_base_url, external_api_key
+       FROM whatsapp_connections WHERE user_id = $1`,
+      [userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'אין חיבור WhatsApp' });
+    }
+
+    const connection = result.rows[0];
+
+    try {
+      const { baseUrl, apiKey } = await getWahaCredentialsForConnection(connection);
+      // Logout — disconnects the phone from the session without destroying it
+      await wahaSession.logoutSession(baseUrl, apiKey, connection.session_name);
+    } catch (err) {
+      console.error('WAHA logout failed:', err.message);
+    }
+
+    await pool.query('DELETE FROM whatsapp_connections WHERE id = $1', [connection.id]);
+
+    res.json({
+      success: true,
+      message: 'הסשן נותק מ-WhatsApp. תוכל לחבר מספר אחר.'
+    });
+  } catch (error) {
+    console.error('Logout session error:', error);
+    res.status(500).json({ error: 'שגיאה בניתוק הסשן' });
+  }
+}
+
+module.exports = { disconnect, deleteConnection, logoutSessionOnly };

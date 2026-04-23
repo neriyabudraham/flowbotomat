@@ -47,7 +47,13 @@ async function listContacts(req, res) {
                c.last_message,
                (SELECT content FROM messages m WHERE m.contact_id = c.id ORDER BY sent_at DESC LIMIT 1)
              ) as last_message,
-             fn.value as full_name
+             fn.value as full_name,
+             COALESCE(
+               (SELECT array_agg(t.name ORDER BY t.name) FROM contact_tags t
+                JOIN contact_tag_assignments cta ON t.id = cta.tag_id
+                WHERE cta.contact_id = c.id),
+               ARRAY[]::text[]
+             ) as tags
       FROM contacts c
       LEFT JOIN LATERAL (
         SELECT value FROM contact_variables cv
@@ -58,11 +64,16 @@ async function listContacts(req, res) {
     const params = [userId];
     let paramIndex = 2;
     
-    // Filter by contact type (chats = no groups, groups = only groups)
+    // Filter by contact type:
+    //   chats    = no groups, no channels
+    //   groups   = only @g.us
+    //   channels = only @newsletter
     if (contact_type === 'chats') {
-      query += ` AND c.phone NOT LIKE '%@g.us'`;
+      query += ` AND c.phone NOT LIKE '%@g.us' AND c.phone NOT LIKE '%@newsletter'`;
     } else if (contact_type === 'groups') {
       query += ` AND c.phone LIKE '%@g.us'`;
+    } else if (contact_type === 'channels') {
+      query += ` AND c.phone LIKE '%@newsletter'`;
     }
     
     if (search) {
@@ -88,9 +99,11 @@ async function listContacts(req, res) {
     
     // Apply same contact_type filter to count
     if (contact_type === 'chats') {
-      countQuery += ` AND c.phone NOT LIKE '%@g.us'`;
+      countQuery += ` AND c.phone NOT LIKE '%@g.us' AND c.phone NOT LIKE '%@newsletter'`;
     } else if (contact_type === 'groups') {
       countQuery += ` AND c.phone LIKE '%@g.us'`;
+    } else if (contact_type === 'channels') {
+      countQuery += ` AND c.phone LIKE '%@newsletter'`;
     }
     
     if (search) {

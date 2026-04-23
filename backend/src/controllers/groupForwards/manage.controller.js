@@ -98,13 +98,20 @@ async function updateGroupForward(req, res) {
       return res.status(404).json({ error: 'העברה לא נמצאה' });
     }
     
-    // Validate delay values
-    let validDelayMin = Math.max(3, delay_min || 3); // Minimum 3 seconds
+    // Validate delay values (minimum 5 seconds to avoid WhatsApp rate-limiting)
+    let validDelayMin = Math.max(5, delay_min || 5);
     let validDelayMax = Math.max(validDelayMin, delay_max || 10);
-    
+
     // Max delay is 60 minutes (3600 seconds)
     validDelayMin = Math.min(3600, validDelayMin);
     validDelayMax = Math.min(3600, validDelayMax);
+
+    // Force allow_all_senders=false when trigger is the official bot
+    // (only explicitly authorized senders may trigger the shared bot)
+    let effectiveAllowAll = allow_all_senders;
+    if (trigger_type === 'status_bot') {
+      effectiveAllowAll = false;
+    }
     
     const result = await db.query(`
       UPDATE group_forwards SET
@@ -142,7 +149,7 @@ async function updateGroupForward(req, res) {
       suffix_enabled,
       notify_sender_on_pending !== undefined ? notify_sender_on_pending : null,
       poll_multiple_answers !== undefined ? poll_multiple_answers : null,
-      allow_all_senders !== undefined ? allow_all_senders : null,
+      effectiveAllowAll !== undefined ? effectiveAllowAll : null,
       link_preview !== undefined ? link_preview : null,
       trigger_conflict_mode || null
     ]);

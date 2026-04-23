@@ -667,12 +667,12 @@ export default function GroupTransferEditor({ transfer, onClose, onSave }) {
                       type="number"
                       value={delayMin}
                       onChange={(e) => {
-                        const val = Math.max(1, parseInt(e.target.value) || 1);
+                        const val = Math.max(5, parseInt(e.target.value) || 5);
                         setDelayMin(val);
                         if (delayMax < val) setDelayMax(val);
                       }}
-                      min={1}
-                      max={60}
+                      min={5}
+                      max={3600}
                       className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400"
                     />
                   </div>
@@ -748,60 +748,60 @@ export default function GroupTransferEditor({ transfer, onClose, onSave }) {
               {/* Quick Delay Presets */}
               <div className="grid grid-cols-3 gap-4">
                 <button
-                  onClick={() => { setDelayMin(1); setDelayMax(3); }}
+                  onClick={() => { setDelayMin(5); setDelayMax(10); }}
                   className={`group p-4 text-center rounded-2xl border-2 transition-all hover:shadow-md ${
-                    delayMin === 1 && delayMax === 3 
-                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50' 
+                    delayMin === 5 && delayMax === 10
+                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
                       : 'border-gray-200 hover:border-green-200'
                   }`}
                 >
                   <div className={`w-12 h-12 mx-auto mb-2 rounded-xl flex items-center justify-center transition-all ${
-                    delayMin === 1 && delayMax === 3 
-                      ? 'bg-gradient-to-br from-green-500 to-emerald-500 shadow-lg' 
+                    delayMin === 5 && delayMax === 10
+                      ? 'bg-gradient-to-br from-green-500 to-emerald-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-green-100'
                   }`}>
-                    <Clock className={`w-6 h-6 ${delayMin === 1 && delayMax === 3 ? 'text-white' : 'text-gray-400 group-hover:text-green-500'}`} />
+                    <Clock className={`w-6 h-6 ${delayMin === 5 && delayMax === 10 ? 'text-white' : 'text-gray-400 group-hover:text-green-500'}`} />
                   </div>
                   <span className="font-bold text-gray-800">מהיר</span>
-                  <span className="block text-xs text-gray-500 mt-1">1-3 שניות</span>
+                  <span className="block text-xs text-gray-500 mt-1">5-10 שניות</span>
                 </button>
-                
+
                 <button
-                  onClick={() => { setDelayMin(3); setDelayMax(5); }}
+                  onClick={() => { setDelayMin(10); setDelayMax(20); }}
                   className={`group p-4 text-center rounded-2xl border-2 transition-all hover:shadow-md ${
-                    delayMin === 3 && delayMax === 5 
-                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50' 
+                    delayMin === 10 && delayMax === 20
+                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
                       : 'border-gray-200 hover:border-blue-200'
                   }`}
                 >
                   <div className={`w-12 h-12 mx-auto mb-2 rounded-xl flex items-center justify-center transition-all ${
-                    delayMin === 3 && delayMax === 5 
-                      ? 'bg-gradient-to-br from-blue-500 to-indigo-500 shadow-lg' 
+                    delayMin === 10 && delayMax === 20
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-blue-100'
                   }`}>
-                    <Clock className={`w-6 h-6 ${delayMin === 3 && delayMax === 5 ? 'text-white' : 'text-gray-400 group-hover:text-blue-500'}`} />
+                    <Clock className={`w-6 h-6 ${delayMin === 10 && delayMax === 20 ? 'text-white' : 'text-gray-400 group-hover:text-blue-500'}`} />
                   </div>
-                  <span className="font-bold text-gray-800">רגיל</span>
-                  <span className="block text-xs text-gray-500 mt-1">3-5 שניות</span>
+                  <span className="font-bold text-gray-800">בינוני</span>
+                  <span className="block text-xs text-gray-500 mt-1">10-20 שניות</span>
                 </button>
-                
+
                 <button
-                  onClick={() => { setDelayMin(5); setDelayMax(10); }}
+                  onClick={() => { setDelayMin(30); setDelayMax(60); }}
                   className={`group p-4 text-center rounded-2xl border-2 transition-all hover:shadow-md ${
-                    delayMin === 5 && delayMax === 10 
-                      ? 'border-teal-500 bg-gradient-to-br from-teal-50 to-cyan-50' 
+                    delayMin === 30 && delayMax === 60
+                      ? 'border-teal-500 bg-gradient-to-br from-teal-50 to-cyan-50'
                       : 'border-gray-200 hover:border-teal-200'
                   }`}
                 >
                   <div className={`w-12 h-12 mx-auto mb-2 rounded-xl flex items-center justify-center transition-all ${
-                    delayMin === 5 && delayMax === 10 
-                      ? 'bg-gradient-to-br from-teal-500 to-cyan-500 shadow-lg' 
+                    delayMin === 30 && delayMax === 60
+                      ? 'bg-gradient-to-br from-teal-500 to-cyan-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-teal-100'
                   }`}>
-                    <Clock className={`w-6 h-6 ${delayMin === 5 && delayMax === 10 ? 'text-white' : 'text-gray-400 group-hover:text-teal-500'}`} />
+                    <Clock className={`w-6 h-6 ${delayMin === 30 && delayMax === 60 ? 'text-white' : 'text-gray-400 group-hover:text-teal-500'}`} />
                   </div>
                   <span className="font-bold text-gray-800">איטי</span>
-                  <span className="block text-xs text-gray-500 mt-1">5-10 שניות</span>
+                  <span className="block text-xs text-gray-500 mt-1">30-60 שניות</span>
                 </button>
               </div>
             </div>

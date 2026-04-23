@@ -2,6 +2,20 @@ const axios = require('axios');
 
 const SUMIT_BASE_URL = 'https://api.sumit.co.il';
 
+// Sumit returns Payment.Status as either a number (0) or the ISO-8583 string
+// code ("000" = approved). Accept all documented success representations.
+function isApprovedPaymentStatus(status) {
+  if (status === undefined || status === null) return false;
+  if (status === 0) return true;
+  if (typeof status === 'string') {
+    const s = status.trim();
+    if (s === '0' || s === '00' || s === '000') return true;
+    if (/^success$/i.test(s) || /^approved$/i.test(s)) return true;
+    if (s.includes('מאושר')) return true;
+  }
+  return false;
+}
+
 /**
  * Get Sumit API credentials from environment
  */
@@ -328,11 +342,16 @@ async function setPaymentMethodForCustomer({ customerId, singleUseToken, custome
       return {
         success: true,
         customerId: response.data.Data?.CustomerID || customerId,
-        paymentMethodId: response.data.Data?.PaymentMethodID,
-        last4Digits: response.data.Data?.Last4Digits || response.data.Data?.CreditCard_LastDigits,
+        paymentMethodId: response.data.Data?.PaymentMethod?.ID || response.data.Data?.PaymentMethodID,
+        cardToken: response.data.Data?.PaymentMethod?.CreditCard_Token || null,
+        last4Digits: response.data.Data?.PaymentMethod?.CreditCard_LastDigits
+                     || response.data.Data?.Last4Digits
+                     || response.data.Data?.CreditCard_LastDigits,
         cardBrand: response.data.Data?.CardBrand,
-        expiryMonth: response.data.Data?.CreditCard_ExpirationMonth,
-        expiryYear: response.data.Data?.CreditCard_ExpirationYear,
+        expiryMonth: response.data.Data?.PaymentMethod?.CreditCard_ExpirationMonth
+                     || response.data.Data?.CreditCard_ExpirationMonth,
+        expiryYear: response.data.Data?.PaymentMethod?.CreditCard_ExpirationYear
+                    || response.data.Data?.CreditCard_ExpirationYear,
         data: response.data.Data,
       };
     } else {
@@ -437,34 +456,69 @@ async function chargeOneTime({ customerId, amount, description, sendEmail = true
     );
     
     console.log('[Sumit] Charge one-time response:', JSON.stringify(response.data, null, 2));
-    
-    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+
+    // ───────────────────────── Success detection ─────────────────────────
+    // Authoritative success signal (as of 2026-04): Sumit returns a settled
+    // transaction as Status=0 + Payment.Status="000" (ISO-8583 approved) +
+    // ValidPayment=true + a DocumentNumber. We treat those as PROOF the card
+    // was charged. Everything else is treated as failure so we don't grant
+    // free service.
+    const data = response.data.Data || {};
+    const apiOk = response.data.Status === 0 || response.data.Status === 'Success (0)';
+    const transactionId = (data.Payment?.ID || data.TransactionID)?.toString();
+    const documentNumber = data.DocumentNumber || data.DocumentID;
+    const documentURL = data.DocumentDownloadURL || data.DocumentURL;
+    const validPayment = data.Payment?.ValidPayment === true;
+    const paymentStatus = data.Payment?.Status ?? data.PaymentStatus;
+    const paymentStatusOk = isApprovedPaymentStatus(paymentStatus);
+    const explicitApproved = data.Payment?.Approved ?? data.Approved;
+    const authNumber = data.Payment?.AuthNumber;
+
+    // Positive path: api ok + (ValidPayment OR approved status) + we have
+    // either a transaction id or a document — that's a real charge.
+    const chargedByPositiveSignal =
+      apiOk && (validPayment || paymentStatusOk || explicitApproved === true) &&
+      (transactionId || documentNumber || documentURL);
+
+    if (chargedByPositiveSignal) {
       return {
         success: true,
-        transactionId: (response.data.Data?.Payment?.ID || response.data.Data?.TransactionID)?.toString(),
-        documentNumber: response.data.Data?.DocumentNumber,
-        documentURL: response.data.Data?.DocumentDownloadURL || response.data.Data?.DocumentURL,
-        data: response.data.Data,
-      };
-    } else {
-      let userError = response.data.UserErrorMessage || 'החיוב נכשל';
-      
-      // Parse common errors
-      if (response.data.TechnicalErrorDetails?.includes('declined')) {
-        userError = 'הכרטיס נדחה. אנא בדוק את פרטי הכרטיס.';
-      } else if (response.data.TechnicalErrorDetails?.includes('expired')) {
-        userError = 'פג תוקף הכרטיס. אנא עדכן את פרטי התשלום.';
-      } else if (response.data.TechnicalErrorDetails?.includes('insufficient')) {
-        userError = 'אין מספיק אשראי בכרטיס.';
-      }
-      
-      return {
-        success: false,
-        error: userError,
-        technicalError: response.data.TechnicalErrorDetails,
-        status: response.data.Status,
+        transactionId,
+        documentNumber,
+        documentURL,
+        authNumber,
+        paymentStatus,
+        data,
       };
     }
+
+    // Fall-through to failure — collect signals for forensic logging.
+    const declinedSignals = [];
+    if (!apiOk) declinedSignals.push(`api_status=${response.data.Status}`);
+    if (!transactionId) declinedSignals.push('no_transaction_id');
+    if (!documentNumber && !documentURL) declinedSignals.push('no_document');
+    if (!validPayment) declinedSignals.push('valid_payment=false');
+    if (paymentStatus !== undefined && !paymentStatusOk) declinedSignals.push(`payment_status=${paymentStatus}`);
+    if (explicitApproved === false) declinedSignals.push('approved=false');
+
+    let userError = response.data.UserErrorMessage || 'החיוב נכשל — הכרטיס לא חויב.';
+    const tech = (response.data.TechnicalErrorDetails || '').toLowerCase();
+    if (tech.includes('declined')) userError = 'הכרטיס נדחה. אנא בדוק את פרטי הכרטיס.';
+    else if (tech.includes('expired')) userError = 'פג תוקף הכרטיס. אנא עדכן את פרטי התשלום.';
+    else if (tech.includes('insufficient')) userError = 'אין מספיק אשראי בכרטיס.';
+    else if (tech.includes('not supported') || tech.includes('unsupported')) userError = 'סוג הכרטיס אינו נתמך. צור קשר כדי לשנות אמצעי תשלום.';
+    else if (declinedSignals.includes('no_document')) userError = 'הסליקה נכשלה — לא הופקה חשבונית. ייתכן שסוג הכרטיס לא נתמך.';
+
+    console.warn('[Sumit] charge classified as FAILED — signals:', declinedSignals.join(', '));
+    return {
+      success: false,
+      error: userError,
+      technicalError: response.data.TechnicalErrorDetails,
+      status: response.data.Status,
+      declinedSignals,
+      transactionId,        // kept for forensic logging
+      paymentStatus,
+    };
   } catch (error) {
     console.error('[Sumit] Charge one-time error:', error.message);
     if (error.response) {
@@ -591,31 +645,63 @@ async function chargeRecurring({
     console.log('[Sumit] HTTP Response status:', response.status);
     console.log('[Sumit] Charge recurring response:', JSON.stringify(response.data, null, 2));
     
-    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+    // Positive-signal success detection — see chargeOneTime for rationale.
+    const data = response.data.Data || {};
+    const apiOk = response.data.Status === 0 || response.data.Status === 'Success (0)';
+    const standingOrderId = data.RecurringCustomerItemIDs?.[0] || data.StandingOrderID;
+    const transactionId = data.Payment?.ID || data.TransactionID;
+    const documentNumber = data.DocumentID || data.DocumentNumber;
+    const documentURL = data.DocumentDownloadURL || data.DocumentURL;
+    const validPayment = data.Payment?.ValidPayment === true;
+    const paymentStatus = data.Payment?.Status ?? data.PaymentStatus;
+    const paymentStatusOk = isApprovedPaymentStatus(paymentStatus);
+    const explicitApproved = data.Payment?.Approved ?? data.Approved;
+
+    // Recurring is considered successful if the API accepted it AND either a
+    // standing order was created (even with no immediate charge) OR a real
+    // payment was settled (ValidPayment/approved-status + document/tx).
+    const standingOrderCreated = apiOk && !!standingOrderId;
+    const settledPayment =
+      apiOk && (validPayment || paymentStatusOk || explicitApproved === true) &&
+      (transactionId || documentNumber || documentURL);
+
+    if (standingOrderCreated || settledPayment) {
       return {
         success: true,
-        standingOrderId: response.data.Data?.RecurringCustomerItemIDs?.[0] || response.data.Data?.StandingOrderID,
-        transactionId: response.data.Data?.Payment?.ID || response.data.Data?.TransactionID,
-        documentNumber: response.data.Data?.DocumentID || response.data.Data?.DocumentNumber,
-        documentURL: response.data.Data?.DocumentDownloadURL || response.data.Data?.DocumentURL,
-        nextChargeDate: response.data.Data?.NextChargeDate,
-        paymentId: response.data.Data?.Payment?.ID,
-        data: response.data.Data,
-      };
-    } else {
-      let userError = response.data.UserErrorMessage || 'יצירת הוראת קבע נכשלה';
-      
-      if (response.data.TechnicalErrorDetails?.includes('declined')) {
-        userError = 'הכרטיס נדחה. אנא בדוק את פרטי הכרטיס.';
-      }
-      
-      return {
-        success: false,
-        error: userError,
-        technicalError: response.data.TechnicalErrorDetails,
-        status: response.data.Status,
+        standingOrderId,
+        transactionId,
+        documentNumber,
+        documentURL,
+        nextChargeDate: data.NextChargeDate,
+        paymentId: data.Payment?.ID,
+        data,
       };
     }
+
+    const declinedSignals = [];
+    if (!apiOk) declinedSignals.push(`api_status=${response.data.Status}`);
+    if (!standingOrderId && !transactionId) declinedSignals.push('no_transaction_or_standing_order');
+    if (!documentNumber && !documentURL) declinedSignals.push('no_document');
+    if (!validPayment) declinedSignals.push('valid_payment=false');
+    if (paymentStatus !== undefined && !paymentStatusOk) declinedSignals.push(`payment_status=${paymentStatus}`);
+    if (explicitApproved === false) declinedSignals.push('approved=false');
+
+    let userError = response.data.UserErrorMessage || 'יצירת הוראת קבע נכשלה — הכרטיס לא חויב.';
+    const tech = (response.data.TechnicalErrorDetails || '').toLowerCase();
+    if (tech.includes('declined')) userError = 'הכרטיס נדחה. אנא בדוק את פרטי הכרטיס.';
+    else if (tech.includes('expired')) userError = 'פג תוקף הכרטיס. אנא עדכן את פרטי התשלום.';
+    else if (tech.includes('insufficient')) userError = 'אין מספיק אשראי בכרטיס.';
+    else if (tech.includes('not supported') || tech.includes('unsupported')) userError = 'סוג הכרטיס אינו נתמך.';
+    else if (declinedSignals.includes('no_document')) userError = 'יצירת הוראת הקבע נכשלה — לא הופקה חשבונית.';
+
+    console.warn('[Sumit] recurring classified as FAILED — signals:', declinedSignals.join(', '));
+    return {
+      success: false,
+      error: userError,
+      technicalError: response.data.TechnicalErrorDetails,
+      status: response.data.Status,
+      declinedSignals,
+    };
   } catch (error) {
     console.error('[Sumit] Charge recurring error:', error.message);
     if (error.response) {
@@ -852,13 +938,18 @@ async function setPaymentMethodWithCard({
     console.log('[Sumit] Set payment method (card) response:', JSON.stringify(response.data, null, 2));
     
     if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+      // Sumit's actual response shape: Data.PaymentMethod.{ID, CreditCard_Token, CreditCard_LastDigits}.
+      // The old extraction looked for Data.PaymentMethodID which doesn't exist — so `card_token`
+      // was NULL and the INSERT failed on NOT NULL. We now extract the real token.
+      const pm = response.data.Data?.PaymentMethod || {};
       return {
         success: true,
         customerId: response.data.Data?.CustomerID || customerId,
-        paymentMethodId: response.data.Data?.PaymentMethodID,
-        last4Digits: cardNumber?.slice(-4) || response.data.Data?.Last4Digits,
-        expiryMonth: expiryMonth,
-        expiryYear: expiryYear,
+        paymentMethodId: pm.ID || response.data.Data?.PaymentMethodID,
+        cardToken: pm.CreditCard_Token || null,
+        last4Digits: pm.CreditCard_LastDigits || cardNumber?.slice(-4) || null,
+        expiryMonth: pm.CreditCard_ExpirationMonth || expiryMonth,
+        expiryYear: pm.CreditCard_ExpirationYear || expiryYear,
         data: response.data.Data,
       };
     } else {
@@ -894,6 +985,74 @@ async function setPaymentMethodWithCard({
   }
 }
 
+/**
+ * List payments in a time window, optionally filtered to valid (settled) only.
+ * Use BEFORE retrying a charge to confirm whether the customer was already
+ * billed (guards against the false-negative retry that happened on 2026-04-23).
+ *
+ * @param {object} params
+ * @param {Date|string} params.dateFrom - ISO date (inclusive)
+ * @param {Date|string} params.dateTo   - ISO date (inclusive)
+ * @param {boolean} [params.validOnly=true] - true = only settled payments
+ * @param {number} [params.startIndex=0]
+ * @returns {Promise<{success: boolean, payments?: array, error?: string}>}
+ */
+async function listPayments({ dateFrom, dateTo, validOnly = true, startIndex = 0 }) {
+  const credentials = getCredentials();
+  try {
+    validateCredentials(credentials);
+    const toIso = d => (d instanceof Date ? d : new Date(d)).toISOString();
+    const response = await axios.post(
+      `${SUMIT_BASE_URL}/billing/payments/list/`,
+      {
+        Credentials: { CompanyID: credentials.CompanyID, APIKey: credentials.APIKey },
+        Date_From: toIso(dateFrom),
+        Date_To: toIso(dateTo),
+        Valid: validOnly,
+        StartIndex: startIndex,
+      },
+      {
+        headers: { 'Content-Type': 'application/json-patch+json', 'accept': 'text/plain' },
+        timeout: 30000,
+      }
+    );
+    if (response.data.Status === 0 || response.data.Status === 'Success (0)') {
+      const d = response.data.Data;
+      const payments = Array.isArray(d) ? d : (d?.Payments || d?.Items || []);
+      return { success: true, payments };
+    }
+    return {
+      success: false,
+      error: response.data.UserErrorMessage || 'שליפת תשלומים נכשלה',
+      technicalError: response.data.TechnicalErrorDetails,
+    };
+  } catch (error) {
+    console.error('[Sumit] listPayments error:', error.message);
+    if (error.response) console.error('[Sumit] Response data:', error.response.data);
+    return { success: false, error: 'שגיאה בשליפת תשלומים' };
+  }
+}
+
+/**
+ * Look up an existing settled payment for a customer in a recent window.
+ * Returns the most recent settled payment that matches customerId (and
+ * optionally amount). Used as a duplicate-charge guard.
+ */
+async function findRecentPayment({ customerId, amount = null, withinHours = 24 }) {
+  const now = new Date();
+  const from = new Date(now.getTime() - withinHours * 60 * 60 * 1000);
+  const res = await listPayments({ dateFrom: from, dateTo: now, validOnly: true });
+  if (!res.success) return { success: false, error: res.error };
+  const matches = (res.payments || []).filter(p => {
+    const pid = p.CustomerID ?? p.Customer?.ID;
+    if (Number(pid) !== Number(customerId)) return false;
+    if (amount !== null && Math.abs(Number(p.Amount) - Number(amount)) > 0.009) return false;
+    return true;
+  });
+  matches.sort((a, b) => new Date(b.Date || 0) - new Date(a.Date || 0));
+  return { success: true, payment: matches[0] || null, matches };
+}
+
 module.exports = {
   createCustomer,
   setPaymentMethodForCustomer,
@@ -904,5 +1063,8 @@ module.exports = {
   chargeRecurring,
   cancelRecurring,
   getCustomerPaymentMethods,
+  listPayments,
+  findRecentPayment,
+  isApprovedPaymentStatus,
   getCredentials,
 };

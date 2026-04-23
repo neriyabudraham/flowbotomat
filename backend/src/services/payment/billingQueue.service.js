@@ -7,7 +7,67 @@ const {
 } = require('../mail/emailLayout.service');
 
 /**
- * Schedule a charge in the billing queue
+ * Duplicate-charge guard. Before actually hitting Sumit, confirm that:
+ *   (a) no successful payment_history row exists for this exact charge, and
+ *   (b) Sumit itself has no settled payment for this customer+amount in the
+ *       last 48 hours.
+ * Returns { duplicate: true, existingPayment } if we must skip the charge.
+ */
+async function findExistingChargeForQueueItem(charge) {
+  // (a) Local DB: has this billing_queue row already produced a successful
+  //     payment_history row? (handles cases where we never reached completed.)
+  const dbHit = await pool.query(
+    `SELECT id, sumit_transaction_id, sumit_document_number, receipt_url, created_at
+       FROM payment_history
+      WHERE billing_queue_id = $1 AND status = 'success'
+      ORDER BY created_at DESC LIMIT 1`,
+    [charge.id]
+  );
+  if (dbHit.rows.length > 0) {
+    return {
+      duplicate: true,
+      source: 'payment_history',
+      existingPayment: dbHit.rows[0],
+    };
+  }
+
+  // (b) Ask Sumit directly — last 48h, same customer, same amount.
+  if (!charge.sumit_customer_id) return { duplicate: false };
+  try {
+    const remote = await sumitService.findRecentPayment({
+      customerId: charge.sumit_customer_id,
+      amount: parseFloat(charge.amount),
+      withinHours: 48,
+    });
+    if (remote.success && remote.payment) {
+      return {
+        duplicate: true,
+        source: 'sumit_list',
+        existingPayment: {
+          sumit_transaction_id: String(remote.payment.ID || remote.payment.PaymentID || ''),
+          sumit_document_number: remote.payment.DocumentNumber
+            ? String(remote.payment.DocumentNumber) : null,
+          receipt_url: remote.payment.DocumentDownloadURL || remote.payment.DocumentURL || null,
+          created_at: remote.payment.Date || null,
+        },
+      };
+    }
+  } catch (e) {
+    console.warn('[BillingQueue] duplicate-guard: Sumit listPayments failed, proceeding cautiously:', e.message);
+  }
+  return { duplicate: false };
+}
+
+/**
+ * Schedule a charge in the billing queue.
+ *
+ * Refuses to create a second charge for the same user+billingType if either
+ *   (a) a successful payment_history row exists within the last 24h, or
+ *   (b) a pending/failed/processing billing_queue row already exists for
+ *       the same chargeDate (any amount).
+ * This is the structural guard that prevents upgrade/plan-change/manual-retry
+ * code paths from stacking a same-day duplicate on top of a charge that
+ * already went through Sumit.
  */
 async function scheduleCharge({
   userId,
@@ -17,16 +77,72 @@ async function scheduleCharge({
   billingType,
   planId = null,
   description = null,
-  currency = 'ILS'
+  currency = 'ILS',
+  allowSameDay = false,     // escape hatch for legitimate intentional same-day
+  blockOnDuplicate = false, // if true, throw on duplicate (admin paths opt in);
+                            // default false returns { blocked } so legacy callers don't crash
 }) {
+  // (a) Recent successful charge of this billing_type — prevents double-hit
+  //     in the common "user already paid today but status was misread" case.
+  const recentSuccess = await pool.query(
+    `SELECT id, amount, sumit_document_number, created_at
+       FROM payment_history
+      WHERE user_id = $1
+        AND billing_type = $2
+        AND status = 'success'
+        AND created_at >= NOW() - INTERVAL '24 hours'
+      ORDER BY created_at DESC LIMIT 1`,
+    [userId, billingType]
+  );
+  if (recentSuccess.rows.length > 0 && !allowSameDay) {
+    const existing = recentSuccess.rows[0];
+    console.warn(
+      `[BillingQueue] scheduleCharge BLOCKED: user ${userId} already has a successful ${billingType} charge (${existing.amount}₪, doc ${existing.sumit_document_number}) at ${existing.created_at}. ` +
+      `Refusing to schedule a new charge of ${amount}₪ for ${chargeDate}.`
+    );
+    if (blockOnDuplicate) {
+      const err = new Error('DUPLICATE_CHARGE_SAME_DAY');
+      err.code = 'DUPLICATE_CHARGE_SAME_DAY';
+      err.existingPayment = existing;
+      throw err;
+    }
+    return { blocked: 'DUPLICATE_CHARGE_SAME_DAY', existingPayment: existing };
+  }
+
+  // (b) Open billing_queue row for the same user+billingType+date — covers
+  //     the case where a prior charge is still pending/processing/failed.
+  const openRow = await pool.query(
+    `SELECT id, amount, status FROM billing_queue
+      WHERE user_id = $1
+        AND billing_type = $2
+        AND charge_date = $3::date
+        AND status IN ('pending', 'processing', 'failed')
+      LIMIT 1`,
+    [userId, billingType, chargeDate]
+  );
+  if (openRow.rows.length > 0 && !allowSameDay) {
+    const existing = openRow.rows[0];
+    console.warn(
+      `[BillingQueue] scheduleCharge BLOCKED: an open ${billingType} charge (${existing.status}, ${existing.amount}₪, id=${existing.id}) already exists for user ${userId} on ${chargeDate}. ` +
+      `Refusing to create a duplicate.`
+    );
+    if (blockOnDuplicate) {
+      const err = new Error('DUPLICATE_QUEUE_ROW_SAME_DAY');
+      err.code = 'DUPLICATE_QUEUE_ROW_SAME_DAY';
+      err.existingRow = existing;
+      throw err;
+    }
+    return { blocked: 'DUPLICATE_QUEUE_ROW_SAME_DAY', existingRow: existing };
+  }
+
   const result = await pool.query(
-    `INSERT INTO billing_queue 
+    `INSERT INTO billing_queue
      (user_id, subscription_id, amount, charge_date, billing_type, plan_id, description, currency)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [userId, subscriptionId, amount, chargeDate, billingType, planId, description, currency]
   );
-  
+
   console.log(`[BillingQueue] Scheduled ${billingType} charge of ${amount} ${currency} for user ${userId} on ${chargeDate}`);
   return result.rows[0];
 }
@@ -440,17 +556,53 @@ async function processQueue() {
         failed++;
         continue;
       }
-      
+
+      // Duplicate-charge guard — skip if Sumit or our DB already has a
+      // settled payment for this billing_queue row / customer+amount.
+      const dupCheck = await findExistingChargeForQueueItem(charge);
+      if (dupCheck.duplicate) {
+        console.warn(`[BillingQueue] Duplicate guard HIT (${dupCheck.source}) for charge ${charge.id} user ${charge.user_id} — treating as success without re-charging`);
+        await handleChargeSuccess(charge, {
+          success: true,
+          transactionId: dupCheck.existingPayment.sumit_transaction_id,
+          documentNumber: dupCheck.existingPayment.sumit_document_number,
+          documentURL: dupCheck.existingPayment.receipt_url,
+          fromDuplicateGuard: true,
+        });
+        successful++;
+        continue;
+      }
+
+      // Add any outstanding save-contact-bot overage to this billing run.
+      let overageAdded = 0;
+      let saveContactUsage = null;
+      try {
+        saveContactUsage = require('../saveContactBot/usage.service');
+        overageAdded = await saveContactUsage.getOutstandingOverage(charge.user_id);
+        if (overageAdded > 0) {
+          console.log(`[BillingQueue] Adding save-contact-bot overage ${overageAdded}₪ to charge for user ${charge.user_id}`);
+        }
+      } catch (e) {
+        console.warn('[BillingQueue] Could not compute overage:', e.message);
+      }
+
       // Execute charge via Sumit
-      const description = charge.description || charge.plan_name_he || `מנוי ${charge.billing_type}`;
+      const baseDesc = charge.description || charge.plan_name_he || `מנוי ${charge.billing_type}`;
+      const description = overageAdded > 0
+        ? `${baseDesc} + תוספת שימוש של ₪${overageAdded}`
+        : baseDesc;
+      const finalAmount = chargeAmount + overageAdded;
       const chargeResult = await sumitService.chargeOneTime({
         customerId: charge.sumit_customer_id,
-        amount: chargeAmount,
+        amount: finalAmount,
         description,
         sendEmail: true
       });
-      
+
       if (chargeResult.success) {
+        if (overageAdded > 0 && saveContactUsage) {
+          try { await saveContactUsage.clearOutstandingOverage(charge.user_id); } catch { /* non-fatal */ }
+        }
         await handleChargeSuccess(charge, chargeResult);
         successful++;
       } else {
@@ -524,6 +676,22 @@ async function retryFailedCharges() {
         } else {
           await handleChargeFailure(charge, 'NO_PAYMENT_METHOD', 'למשתמש אין אמצעי תשלום מוגדר');
         }
+        continue;
+      }
+
+      // Duplicate-charge guard — retries are the most dangerous path for
+      // double-charging. Check both our DB and Sumit before re-attempting.
+      const dupCheck = await findExistingChargeForQueueItem(charge);
+      if (dupCheck.duplicate) {
+        console.warn(`[BillingQueue] Retry duplicate guard HIT (${dupCheck.source}) for charge ${charge.id} user ${charge.user_id} — marking success without re-charging`);
+        await handleChargeSuccess(charge, {
+          success: true,
+          transactionId: dupCheck.existingPayment.sumit_transaction_id,
+          documentNumber: dupCheck.existingPayment.sumit_document_number,
+          documentURL: dupCheck.existingPayment.receipt_url,
+          fromDuplicateGuard: true,
+        });
+        successful++;
         continue;
       }
 
@@ -1127,6 +1295,14 @@ async function sendFailureNotifications(charge, errorCode, errorMessage, retryCo
 
     const isLastRetry = retryCount >= maxRetries;
 
+    // Compute next-retry date locally (mirrors handleChargeFailure logic: +1 day, skip Saturday)
+    const nextRetryDate = new Date();
+    nextRetryDate.setDate(nextRetryDate.getDate() + 1);
+    if (nextRetryDate.getDay() === 6) nextRetryDate.setDate(nextRetryDate.getDate() + 1);
+    const formattedRetryDate = nextRetryDate.toLocaleDateString('he-IL', {
+      weekday: 'long', month: 'long', day: 'numeric'
+    });
+
     // Send to admin
     if (adminEmail) {
       const chargeDateStr = charge.charge_date ? new Date(charge.charge_date).toLocaleDateString('he-IL') : 'לא ידוע';
@@ -1360,5 +1536,6 @@ module.exports = {
   getBillingStats,
   handleChargeSuccess,
   handleChargeFailure,
-  detectMissingBillingEntries
+  detectMissingBillingEntries,
+  findExistingChargeForQueueItem,
 };

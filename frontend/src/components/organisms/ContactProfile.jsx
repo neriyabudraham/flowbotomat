@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { 
-  X, Phone, Calendar, MessageSquare, Tag, Variable, Bot, XCircle, Plus, Trash2, 
+import {
+  X, Phone, Calendar, MessageSquare, Tag, Variable, Bot, XCircle, Plus, Trash2,
   Clock, Mail, User, MapPin, Building, Check, ChevronDown, ChevronUp, Copy, Users,
-  Download, Loader2, Crown, Shield
+  Download, Loader2, Crown, Shield, Pencil
 } from 'lucide-react';
 import api from '../../services/api';
 import { toast } from '../../store/toastStore';
@@ -111,6 +111,9 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
   const [allTags, setAllTags] = useState([]);
   const [newVarKey, setNewVarKey] = useState('');
   const [newVarValue, setNewVarValue] = useState('');
+  const [editingVarKey, setEditingVarKey] = useState(null);
+  const [editingVarValue, setEditingVarValue] = useState('');
+  const [savingVarKey, setSavingVarKey] = useState(null);
   const [newTagName, setNewTagName] = useState('');
   const [stats, setStats] = useState({ 
     messageCount: 0,
@@ -203,6 +206,31 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
       loadData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const startEditVariable = (key, value) => {
+    setEditingVarKey(key);
+    setEditingVarValue(value ?? '');
+  };
+
+  const cancelEditVariable = () => {
+    setEditingVarKey(null);
+    setEditingVarValue('');
+  };
+
+  const saveEditVariable = async (key) => {
+    setSavingVarKey(key);
+    try {
+      await api.post(`/contacts/${contact.id}/variables`, { key, value: editingVarValue });
+      setEditingVarKey(null);
+      setEditingVarValue('');
+      await loadData();
+    } catch (err) {
+      console.error(err);
+      toast.error('שמירת המשתנה נכשלה');
+    } finally {
+      setSavingVarKey(null);
     }
   };
 
@@ -850,9 +878,11 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
                 ) : (
                   variables.map(v => {
                     const Icon = getVariableIcon(v.key);
+                    const isEditing = editingVarKey === v.key;
+                    const isSaving = savingVarKey === v.key;
                     return (
-                      <div 
-                        key={v.key} 
+                      <div
+                        key={v.key}
                         className="flex items-center gap-3 p-3 bg-gradient-to-r from-gray-50 to-white rounded-xl border border-gray-100 group"
                       >
                         <div className="p-2 bg-teal-100 rounded-lg">
@@ -860,14 +890,60 @@ export default function ContactProfile({ contact, onClose, onUpdate, onDelete })
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-teal-700">{getVariableLabel(v.key)}</p>
-                          <p className="text-sm text-gray-800 truncate" dir="auto">{v.value || '-'}</p>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editingVarValue}
+                              onChange={(e) => setEditingVarValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveEditVariable(v.key);
+                                if (e.key === 'Escape') cancelEditVariable();
+                              }}
+                              autoFocus
+                              dir="auto"
+                              className="w-full mt-1 px-2 py-1 bg-white border border-teal-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                            />
+                          ) : (
+                            <p className="text-sm text-gray-800 truncate" dir="auto">{v.value || '-'}</p>
+                          )}
                         </div>
-                        <button 
-                          onClick={() => handleDeleteVariable(v.key)} 
-                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {isEditing ? (
+                          <>
+                            <button
+                              onClick={() => saveEditVariable(v.key)}
+                              disabled={isSaving}
+                              className="p-1.5 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg disabled:opacity-50"
+                              title="שמור"
+                            >
+                              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={cancelEditVariable}
+                              disabled={isSaving}
+                              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+                              title="ביטול"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => startEditVariable(v.key, v.value)}
+                              className="p-1.5 text-teal-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                              title="ערוך"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteVariable(v.key)}
+                              className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                              title="מחק"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     );
                   })

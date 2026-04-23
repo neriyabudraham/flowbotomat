@@ -204,8 +204,11 @@ export default function SettingsPage() {
   const loadGoogleContactsStatus = async () => {
     try {
       setContactsLoading(true);
-      const { data } = await api.get('/google-contacts/status');
-      setGoogleContactsStatus(data);
+      const [{ data: status }, { data: accountsData }] = await Promise.all([
+        api.get('/google-contacts/status').catch(() => ({ data: { connected: false } })),
+        api.get('/google-contacts/accounts').catch(() => ({ data: { accounts: [] } })),
+      ]);
+      setGoogleContactsStatus({ ...status, accounts: accountsData.accounts || [] });
     } catch (err) {
       console.error('Failed to load Google Contacts status:', err);
     } finally {
@@ -216,7 +219,7 @@ export default function SettingsPage() {
   const connectGoogleContacts = async () => {
     try {
       setContactsLoading(true);
-      const { data } = await api.get('/google-contacts/auth-url');
+      const { data } = await api.get('/google-contacts/accounts/auth-url');
       window.location.replace(data.url);
     } catch (err) {
       console.error('Failed to get auth URL:', err);
@@ -231,11 +234,30 @@ export default function SettingsPage() {
     try {
       setContactsLoading(true);
       await api.post('/google-contacts/disconnect');
-      setGoogleContactsStatus({ connected: false });
+      setGoogleContactsStatus({ connected: false, accounts: [] });
     } catch (err) {
       console.error('Failed to disconnect Google Contacts:', err);
     } finally {
       setContactsLoading(false);
+    }
+  };
+
+  const disconnectGoogleAccount = async (slot, email) => {
+    if (!await toast.confirm(`להסיר את החשבון ${email}?`, { type: 'warning', confirmText: 'הסר', cancelText: 'ביטול' })) return;
+    try {
+      await api.delete(`/google-contacts/accounts/${slot}`);
+      await loadGoogleContactsStatus();
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בהסרת חשבון' });
+    }
+  };
+
+  const setPrimaryGoogleAccount = async (slot) => {
+    try {
+      await api.post(`/google-contacts/accounts/${slot}/primary`);
+      await loadGoogleContactsStatus();
+    } catch (err) {
+      setMessage({ type: 'error', text: err.response?.data?.error || 'שגיאה בקביעת חשבון ראשי' });
     }
   };
 
@@ -1073,20 +1095,14 @@ export default function SettingsPage() {
                           </button>
                           {contactsLoading ? (
                             <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                          ) : googleContactsStatus?.connected ? (
-                            <>
-                              <span className="flex items-center gap-1.5 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg font-medium">
-                                <CheckCircle2 className="w-4 h-4" />
-                                מחובר
-                              </span>
-                              <button
-                                onClick={disconnectGoogleContacts}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors font-medium"
-                              >
-                                <Unplug className="w-4 h-4" />
-                                נתק
-                              </button>
-                            </>
+                          ) : (googleContactsStatus?.accounts?.length > 0) ? (
+                            <button
+                              onClick={connectGoogleContacts}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg font-medium"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              הוסף חשבון נוסף
+                            </button>
                           ) : (
                             <button
                               onClick={connectGoogleContacts}
@@ -1099,6 +1115,40 @@ export default function SettingsPage() {
                         </div>
                       </div>
                       
+                      {/* Multi-account list */}
+                      {googleContactsStatus?.accounts?.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+                          {googleContactsStatus.accounts.map((acc) => (
+                            <div key={acc.slot} className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center text-blue-700 text-sm font-bold shrink-0">
+                                {(acc.email || '?').charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-medium text-gray-800 truncate" dir="ltr">{acc.email}</div>
+                                {acc.name && <div className="text-xs text-gray-500 truncate">{acc.name}</div>}
+                              </div>
+                              {acc.slot === 0 ? (
+                                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">ראשי</span>
+                              ) : (
+                                <button onClick={() => setPrimaryGoogleAccount(acc.slot)}
+                                  className="text-[10px] font-bold text-gray-600 hover:text-blue-700 border border-gray-200 hover:border-blue-200 hover:bg-blue-50 px-2 py-0.5 rounded-full transition">
+                                  קבע כראשי
+                                </button>
+                              )}
+                              <button onClick={() => disconnectGoogleAccount(acc.slot, acc.email)}
+                                className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded-lg" title="הסר חשבון זה">
+                                <Unplug className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                          {googleContactsStatus.accounts.length > 1 && (
+                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                              סנכרון לחשבונות מתבצע בחשבון הראשי. כשהוא מגיע ל-25,000 אנשי קשר, המערכת עוברת אוטומטית לחשבון הבא בתור.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                       {googleContactsStatus?.connected && (
                         <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
                           <div className="flex items-center gap-6 text-sm text-gray-500">

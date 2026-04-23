@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, RefreshCw, Trash2, Wifi, WifiOff,
   Shield, Zap, Clock, AlertCircle, Phone, Settings,
   ChevronLeft, Loader2, ExternalLink, Copy, Check, ChevronDown,
-  Hash, CreditCard, Link2
+  Hash, CreditCard, Link2, LogOut
 } from 'lucide-react';
 import useWhatsappStore from '../store/whatsappStore';
 import useAuthStore from '../store/authStore';
@@ -14,6 +14,7 @@ import NotificationsDropdown from '../components/notifications/NotificationsDrop
 import AccountSwitcher from '../components/AccountSwitcher';
 import PaymentRequiredModal from '../components/payment/PaymentRequiredModal';
 import { toast } from '../store/toastStore';
+import api from '../services/api';
 
 export default function WhatsappSetupPage() {
   const navigate = useNavigate();
@@ -92,13 +93,36 @@ export default function WhatsappSetupPage() {
         setStep('qr');
         fetchQR();
       } else {
-        setStep('select');
+        // No active session. Check payment state and — if already settled —
+        // auto-initiate the managed connection so the QR appears without
+        // the user needing to click "התחבר עכשיו".
         setIsCheckingExisting(true);
         const existingData = await checkExisting();
         setIsCheckingExisting(false);
         if (existingData?.requiresPayment) {
+          setStep('select');
           setPendingConnectionType('managed');
           setShowPaymentModal(true);
+        } else {
+          // Payment is OK — jump straight to QR
+          try {
+            const connectData = await connectManaged();
+            if (connectData.connection?.status === 'connected') {
+              setStep('connected');
+            } else {
+              setStep('qr');
+              fetchQR();
+            }
+          } catch (err) {
+            // Fall back to select step on any error so user can retry manually
+            setStep('select');
+            if (err.response?.data?.code === 'SUBSCRIPTION_REQUIRED') {
+              // User sees the landing/select screen; no automatic redirect on first load
+            } else if (err.response?.data?.code === 'PAYMENT_REQUIRED') {
+              setPendingConnectionType('managed');
+              setShowPaymentModal(true);
+            }
+          }
         }
       }
     } catch {
@@ -198,6 +222,29 @@ export default function WhatsappSetupPage() {
       await checkExisting();
       setIsCheckingExisting(false);
     } catch {}
+  };
+
+  const handleLogoutSession = async () => {
+    if (!await toast.confirm('האם להתנתק לגמרי מהסשן?\n\nהסשן ינותק מ-WhatsApp לחלוטין, ותוכל לחבר מספר אחר. החיבור יוסר מהמערכת.')) return;
+    clearError();
+    try {
+      await api.delete('/whatsapp/logout-session');
+      // Clear local state and go back to select step
+      setStep('select');
+      setIsCheckingExisting(true);
+      await checkExisting();
+      setIsCheckingExisting(false);
+    } catch (err) {
+      console.error('Logout session failed:', err);
+      // Fallback to deleteConnection if the dedicated endpoint fails
+      try {
+        await deleteConnection();
+        setStep('select');
+        setIsCheckingExisting(true);
+        await checkExisting();
+        setIsCheckingExisting(false);
+      } catch {}
+    }
   };
 
   const handleRefreshQR = async () => {
@@ -718,23 +765,16 @@ export default function WhatsappSetupPage() {
               
               {/* Connection Details */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl p-6 mb-6 border border-green-200">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center p-4 bg-white rounded-xl">
-                    <Phone className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">מספר טלפון</p>
-                    <p className="font-bold text-gray-900">{connection?.phone_number || 'לא זמין'}</p>
-                  </div>
-                  <div className="text-center p-4 bg-white rounded-xl">
-                    <Wifi className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">סטטוס</p>
-                    <p className="font-bold text-green-600 flex items-center justify-center gap-1">
-                      <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                      מחובר
-                    </p>
-                  </div>
+                <div className="text-center p-4 bg-white rounded-xl">
+                  <Wifi className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">סטטוס</p>
+                  <p className="font-bold text-green-600 flex items-center justify-center gap-1">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    מחובר
+                  </p>
                 </div>
               </div>
-              
+
               {/* Actions */}
               <div className="space-y-3">
                 <Link
@@ -744,7 +784,7 @@ export default function WhatsappSetupPage() {
                   המשך לדשבורד
                   <ChevronLeft className="w-5 h-5" />
                 </Link>
-                
+
                 <div className="flex gap-3">
                   <button
                     onClick={handleDisconnect}
@@ -752,7 +792,16 @@ export default function WhatsappSetupPage() {
                     className="flex-1 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <WifiOff className="w-5 h-5" />
-                    נתק
+                    הסר מהמערכת
+                  </button>
+                  <button
+                    onClick={handleLogoutSession}
+                    disabled={isLoading}
+                    className="flex-1 py-3 border-2 border-orange-200 text-orange-700 rounded-xl font-medium hover:bg-orange-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                    title="התנתק לגמרי מהסשן כדי לחבר מספר אחר"
+                  >
+                    <LogOut className="w-5 h-5" />
+                    התנתק מהסשן
                   </button>
                   <button
                     onClick={handleDelete}

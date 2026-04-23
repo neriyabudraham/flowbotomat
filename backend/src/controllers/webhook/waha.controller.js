@@ -1029,12 +1029,23 @@ async function handleIncomingMessage(userId, event) {
               
               // Update reply count
               await pool.query(`
-                UPDATE status_bot_statuses 
+                UPDATE status_bot_statuses
                 SET reply_count = (SELECT COUNT(*) FROM status_bot_replies WHERE status_id = $1)
                 WHERE id = $1
               `, [statusId]);
-              
-              // Reply synced to status_bot
+
+              // Also add replier as a viewer (if they replied, they saw the status)
+              await pool.query(`
+                INSERT INTO status_bot_views (status_id, viewer_phone, viewed_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (status_id, viewer_phone) DO NOTHING
+              `, [statusId, senderPhone]);
+
+              await pool.query(`
+                UPDATE status_bot_statuses
+                SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
+                WHERE id = $1
+              `, [statusId]);
             }
           } catch (replyErr) {
             console.error('[Webhook] Error syncing status reply:', replyErr.message);
@@ -1404,12 +1415,13 @@ async function handleOutgoingDeviceMessage(userId, payload) {
     ? JSON.stringify({ options: messageData.pollOptions || [], multipleAnswers: messageData.multipleAnswers || false })
     : null;
 
-  // Save outgoing message
+  // Save outgoing message (ON CONFLICT guards against race with the sender service)
   const result = await pool.query(
     `INSERT INTO messages
      (user_id, contact_id, wa_message_id, direction, message_type,
       content, media_url, media_mime_type, media_filename, latitude, longitude, sent_at, status, metadata)
      VALUES ($1, $2, $3, 'outgoing', $4, $5, $6, $7, $8, $9, $10, $11, 'sent', $12)
+     ON CONFLICT (user_id, wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING
      RETURNING *`,
     [userId, contact.id, waMessageId, messageData.type, messageData.content,
      messageData.mediaUrl, messageData.mimeType, messageData.filename,
@@ -1417,6 +1429,10 @@ async function handleOutgoingDeviceMessage(userId, payload) {
      payload.timestamp ? new Date(payload.timestamp * 1000) : new Date(),
      outgoingMetadata]
   );
+  if (result.rowCount === 0) {
+    // Already saved by the sender path — no duplicate emission
+    return;
+  }
   
   // Update contact's last message time
   await pool.query(
@@ -1588,21 +1604,23 @@ async function syncStatusBotView(userId, waMessageId, viewerPhone) {
     }
     
     if (statusResult.rows.length === 0) {
+      // Status not found — skip. We don't auto-create ghost statuses because
+      // each WhatsApp view/ack can have a different message ID, which would
+      // produce many false-positive status records.
       return;
     }
-    
     const statusId = statusResult.rows[0].id;
-    
+
     // Insert view (ignore duplicates)
     await pool.query(`
       INSERT INTO status_bot_views (status_id, viewer_phone)
       VALUES ($1, $2)
       ON CONFLICT (status_id, viewer_phone) DO NOTHING
     `, [statusId, viewerPhone]);
-    
+
     // Update view count
     await pool.query(`
-      UPDATE status_bot_statuses 
+      UPDATE status_bot_statuses
       SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
       WHERE id = $1
     `, [statusId]);
@@ -1809,6 +1827,28 @@ async function handleSessionStatus(userId, event) {
       }
     }
 
+    // NEW: if still no status_bot row but user has an active status-bot
+    // subscription, auto-create one now — connects the status bot to the
+    // same WAHA session so the user doesn't have to click "connect" in the
+    // status bot UI. Runs on EVERY main-WA connected transition.
+    if (sbcResult.rows.length === 0 && ourStatus === 'connected') {
+      try {
+        const { autoLinkStatusBotToMain } = require('../../services/statusBot/autoLink.service');
+        const link = await autoLinkStatusBotToMain(userId, { source: 'webhook_wa_connected' });
+        if (link.linked) {
+          // Re-read so downstream proxy-assignment logic sees the new row
+          const re = await pool.query(
+            `SELECT id, phone_number, proxy_ip, waha_source_id
+               FROM status_bot_connections WHERE user_id = $1`,
+            [userId]
+          );
+          if (re.rows.length > 0) sbcResult = { rows: re.rows };
+        }
+      } catch (autoErr) {
+        console.warn(`[Webhook] Status-bot auto-link error for user ${userId}: ${autoErr.message}`);
+      }
+    }
+
     // Assign proxy when status bot session becomes connected and has a phone number
     if (ourStatus === 'connected' && sbcResult.rows.length > 0) {
       const sbc = sbcResult.rows[0];
@@ -1889,19 +1929,19 @@ async function handleMessageReaction(userId, event) {
       }
       
       const reactionText = payload.reaction?.text || '';
-      
+
       const reactionMsgId = payload.reaction?.messageId || payload.reaction?.id?._serialized || payload.reaction?.id || '';
-      
-      // Status reaction detected
-      
-      // Trigger bot engine with special event type
+
+      // Trigger bot engine — it dedups internally per (user, reactor, status)
+      // and silently drops removals (empty reaction text).
       await botEngine.processEvent(userId, reactorPhone, 'status_reaction', {
         reaction: reactionText,
         messageId: reactionMsgId,
         fromMe: payload.fromMe
       });
-      
-      // Sync reaction to status_bot_reactions table
+
+      // Always sync the latest reaction state to status_bot_reactions (even on removal),
+      // so dashboards/counts stay accurate independently of the trigger dedup.
       await syncStatusBotReaction(userId, reactionMsgId, reactorPhone, reactionText);
     }
     // Non-status reactions: sync to message and emit to live chat
@@ -1983,6 +2023,20 @@ async function syncStatusBotReaction(userId, waMessageId, reactorPhone, reaction
       WHERE id = $1
     `, [statusId]);
     
+    // Also add reactor as a viewer (if they reacted, they must have seen the status)
+    await pool.query(`
+      INSERT INTO status_bot_views (status_id, viewer_phone, viewed_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (status_id, viewer_phone) DO NOTHING
+    `, [statusId, reactorPhone]);
+
+    // Update view count to include reaction-based viewers
+    await pool.query(`
+      UPDATE status_bot_statuses
+      SET view_count = (SELECT COUNT(*) FROM status_bot_views WHERE status_id = $1)
+      WHERE id = $1
+    `, [statusId]);
+
     console.log(`[Webhook] ✅ Synced reaction to status_bot: status ${statusId}, reactor ${reactorPhone}, reaction ${reactionText}`);
   } catch (err) {
     // Silently fail - this is optional sync

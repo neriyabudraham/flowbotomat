@@ -1,8 +1,8 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('../../config/database');
 
-const TOKEN_EXPIRY_MINUTES = 5;
-const MAX_ATTEMPTS = 2;
+const TOKEN_EXPIRY_MINUTES = 30;
+const MAX_ATTEMPTS = 8;
 
 /**
  * Generate 6-digit code

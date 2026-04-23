@@ -301,7 +301,20 @@ function buildFilterQuery(userId, filterCriteria) {
     params.push(filterCriteria.last_message_before);
     paramIndex++;
   }
-  
+
+  // Filter by entity type: chats (direct) / groups / channels.
+  // filterCriteria.contact_types = ['chats', 'groups', 'channels'] — if absent, default includes all types.
+  if (Array.isArray(filterCriteria.contact_types) && filterCriteria.contact_types.length > 0) {
+    const allowed = new Set(filterCriteria.contact_types);
+    const clauses = [];
+    if (allowed.has('chats')) clauses.push(`(c.phone NOT LIKE '%@g.us' AND c.phone NOT LIKE '%@newsletter')`);
+    if (allowed.has('groups')) clauses.push(`c.phone LIKE '%@g.us'`);
+    if (allowed.has('channels')) clauses.push(`c.phone LIKE '%@newsletter'`);
+    if (clauses.length > 0) {
+      whereClause += ` AND (${clauses.join(' OR ')})`;
+    }
+  }
+
   return { whereClause, params };
 }
 

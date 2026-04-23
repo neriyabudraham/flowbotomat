@@ -1,4 +1,8 @@
 const db = require('../../config/database');
+const settingsBus = (() => {
+  try { return require('../../services/statusBot/settingsBus.service'); }
+  catch { return { notifyChanged: async () => {} }; }
+})();
 
 // Default status bot colors (user's specified colors)
 const DEFAULT_STATUS_BOT_COLORS = [
@@ -159,8 +163,11 @@ async function updateSetting(req, res) {
        RETURNING key, value, updated_at`,
       [key, JSON.stringify(value), req.user.id]
     );
-    
-    res.json({ setting: result.rows[0] });
+
+    // Broadcast invalidation to all backend + queue-processor instances → instant effect
+    settingsBus.notifyChanged(key, db).catch(() => {});
+
+    res.json({ setting: result.rows[0], hot_reloaded: true });
   } catch (error) {
     console.error('[Admin] Update setting error:', error);
     res.status(500).json({ error: 'שגיאה בעדכון הגדרה' });

@@ -12,6 +12,7 @@ const billingController = require('../controllers/admin/billing.controller');
 const legalController = require('../controllers/admin/legal.controller');
 const wahaSourcesController = require('../controllers/admin/waha-sources.controller');
 const proxySourcesController = require('../controllers/admin/proxy-sources.controller');
+const systemAlertsController = require('../controllers/admin/systemAlerts.controller');
 
 // All admin routes require auth + admin role
 router.use(authMiddleware);
@@ -237,6 +238,13 @@ router.put('/billing/charge-date/:id', superadminMiddleware, billingController.u
 router.put('/billing/sumit-customer/:userId', superadminMiddleware, billingController.updateSumitCustomerId);
 router.delete('/billing/charge/:id', superadminMiddleware, billingController.deleteCharge);
 router.put('/billing/receipt-url/:id', superadminMiddleware, billingController.updateReceiptUrl);
+
+// ─── System alerts (status bot delivery health) ───
+router.get ('/system-alerts',                    systemAlertsController.listAlerts);
+router.get ('/system-alerts/delivery-health',    systemAlertsController.getDeliveryHealth);
+router.post('/system-alerts/run-watchdog',       systemAlertsController.runWatchdogNow);
+router.post('/system-alerts/resolve-by-type',    systemAlertsController.resolveAllOfType);
+router.post('/system-alerts/:alertId/resolve',   systemAlertsController.resolveAlert);
 
 // System update notification - can be called without auth (for deploy script)
 // Uses a secret key for authentication

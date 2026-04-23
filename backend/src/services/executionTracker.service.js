@@ -61,6 +61,43 @@ class ExecutionTracker {
   }
 
   /**
+   * Mark every run still in 'running' state older than `thresholdMinutes` as
+   * failed. Used on startup (previous container crashed mid-run) and on
+   * graceful shutdown (we're about to exit).
+   *
+   * @param {object} opts
+   * @param {number} [opts.thresholdMinutes=5] — how old must a 'running' row
+   *        be before we consider it orphaned. On shutdown we pass 0 to mark
+   *        every active run.
+   * @param {string} [opts.reason] — error_message to write.
+   * @returns {Promise<number>} rows cleaned.
+   */
+  async cleanupStaleRuns({ thresholdMinutes = 5, reason } = {}) {
+    try {
+      const msg = reason ||
+        'הבוט נעצר באמצע ריצה — הקונטיינר אותחל מחדש (deploy/restart). רישום סגור אוטומטית.';
+      const result = await db.query(
+        `UPDATE bot_execution_runs
+         SET status = 'failed',
+             error_message = $1,
+             completed_at = NOW(),
+             duration_ms = EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000
+         WHERE status = 'running'
+           AND started_at < NOW() - ($2 * interval '1 minute')
+         RETURNING id`,
+        [msg, thresholdMinutes]
+      );
+      if (result.rowCount > 0) {
+        console.log(`[ExecutionTracker] 🧹 Cleaned up ${result.rowCount} orphaned run(s) (stuck in 'running')`);
+      }
+      return result.rowCount;
+    } catch (err) {
+      console.error('[ExecutionTracker] cleanupStaleRuns failed:', err.message);
+      return 0;
+    }
+  }
+
+  /**
    * Get node label based on type and data
    */
   getNodeLabel(node) {

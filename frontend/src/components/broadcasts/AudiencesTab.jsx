@@ -1424,9 +1424,10 @@ function FilterBuilder({ criteria, onChange }) {
   return (
     <div className="space-y-4">
       {/* Section Tabs */}
-      <div className="flex gap-2 border-b border-gray-200 pb-2">
+      <div className="flex gap-2 border-b border-gray-200 pb-2 flex-wrap">
         {[
           { id: 'tags', label: 'תגיות', icon: Tag },
+          { id: 'entity', label: 'סוג ישות', icon: Users },
           { id: 'conditions', label: 'תנאי משתנים', icon: Settings },
           { id: 'status', label: 'סטטוס', icon: Filter },
         ].map(section => (
@@ -1540,6 +1541,47 @@ function FilterBuilder({ criteria, onChange }) {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Entity type section — chats / groups / channels */}
+      {activeSection === 'entity' && (
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-700 flex items-center gap-2 mb-2">
+              <Users className="w-4 h-4 text-indigo-500" />
+              סוג ישות ב-WhatsApp
+            </label>
+            <p className="text-xs text-gray-500 mb-3">
+              בחר אילו סוגי ישויות ייכללו בקהל. אם לא נבחר כלום — הקהל כולל הכל.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              {[
+                { key: 'chats', label: 'צ׳אטים אישיים', desc: 'אנשי קשר רגילים (לא קבוצות/ערוצים)' },
+                { key: 'groups', label: 'קבוצות', desc: 'כל @g.us' },
+                { key: 'channels', label: 'ערוצים', desc: 'כל @newsletter' },
+              ].map(opt => {
+                const selected = (criteria.contact_types || []).includes(opt.key);
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => {
+                      const cur = criteria.contact_types || [];
+                      const next = selected ? cur.filter(x => x !== opt.key) : [...cur, opt.key];
+                      onChange({ ...criteria, contact_types: next });
+                    }}
+                    className={`text-right p-3 rounded-lg border-2 transition ${
+                      selected ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <div className={`font-medium text-sm ${selected ? 'text-indigo-900' : 'text-gray-900'}`}>{opt.label}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

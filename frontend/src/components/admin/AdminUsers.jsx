@@ -45,6 +45,7 @@ export default function AdminUsers() {
     hasModules: '',
     role: '',
     dateRange: '',
+    billingStatus: '',
   });
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -75,7 +76,12 @@ export default function AdminUsers() {
       if (filters.paymentStatus === 'no_payment') params.append('no_payment_method', 'true');
       if (filters.whatsappStatus === 'connected') params.append('whatsapp_connected', 'true');
       if (filters.hasModules === 'yes') params.append('has_modules', 'true');
-      
+      if (filters.billingStatus === 'no_billing') params.append('no_billing_scheduled', 'true');
+      if (filters.billingStatus === 'failed_charges') params.append('has_failed_charges', 'true');
+      if (filters.billingStatus === 'manual_with_billing') params.append('manual_with_billing', 'true');
+      if (filters.billingStatus === 'manual_without_billing') params.append('manual_without_billing', 'true');
+      if (filters.billingStatus === 'has_status_bot') params.append('has_service', 'status-bot');
+
       const { data } = await api.get(`/admin/users?${params}`);
       setUsers(data.users || []);
       setPagination({
@@ -132,6 +138,7 @@ export default function AdminUsers() {
       hasModules: '',
       role: '',
       dateRange: '',
+      billingStatus: '',
     });
     setSearch('');
   };
@@ -302,7 +309,7 @@ export default function AdminUsers() {
 
         {/* Filter Options */}
         {showFilters && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <FilterSelect
               label="סטטוס מנוי"
               value={filters.subscriptionStatus}
@@ -342,6 +349,19 @@ export default function AdminUsers() {
               options={[
                 { value: '', label: 'הכל' },
                 { value: 'yes', label: '✓ יש מודולים' },
+              ]}
+            />
+            <FilterSelect
+              label="בילינג"
+              value={filters.billingStatus}
+              onChange={(v) => setFilters(f => ({ ...f, billingStatus: v }))}
+              options={[
+                { value: '', label: 'הכל' },
+                { value: 'no_billing', label: '⚠️ פעיל ללא חיוב' },
+                { value: 'failed_charges', label: '❌ חיובים שנכשלו' },
+                { value: 'manual_with_billing', label: '💰 ידני עם חיוב' },
+                { value: 'manual_without_billing', label: '🎁 ידני ללא חיוב' },
+                { value: 'has_status_bot', label: '✨ בוט סטטוסים' },
               ]}
             />
             <FilterSelect
@@ -995,10 +1015,11 @@ function UsersTable({ users, currentUser, onSelect, showToast, sortBy, sortOrder
             <tr className="bg-gray-50 dark:bg-gray-700/50">
               <SortableHeader label="משתמש" column="name" current={sortBy} order={sortOrder} onSort={onSort} />
               <th className="px-4 py-4 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">מנוי</th>
+              <th className="px-4 py-4 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">חיוב</th>
               <th className="px-4 py-4 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">אשראי</th>
               <th className="px-4 py-4 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">וואטסאפ</th>
               <SortableHeader label="בוטים" column="bots_count" current={sortBy} order={sortOrder} onSort={onSort} />
-              <th className="px-4 py-4 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">מודולים</th>
+              <th className="px-4 py-4 text-right text-sm font-semibold text-gray-600 dark:text-gray-300">שירותים</th>
               <SortableHeader label="הצטרף" column="created_at" current={sortBy} order={sortOrder} onSort={onSort} />
               <th className="px-4 py-4 text-center text-sm font-semibold text-gray-600 dark:text-gray-300">פעולות</th>
             </tr>
@@ -1150,6 +1171,25 @@ function UserTableRow({ user, currentUser, onSelect, showToast, onRefresh }) {
         <SubscriptionBadge user={user} />
       </td>
       <td className="px-4 py-4">
+        {user.effective_monthly_amount > 0 ? (
+          <div className="text-sm">
+            <span className="font-medium text-gray-800 dark:text-gray-200">₪{parseFloat(user.effective_monthly_amount).toFixed(0)}</span>
+            {user.next_pending_charge_date ? (
+              <div className="text-xs text-gray-400">{new Date(user.next_pending_charge_date).toLocaleDateString('he-IL')}</div>
+            ) : user.next_charge_date ? (
+              <div className="text-xs text-gray-400">{new Date(user.next_charge_date).toLocaleDateString('he-IL')}</div>
+            ) : (
+              <div className="text-xs text-orange-500">ללא תאריך</div>
+            )}
+            {parseInt(user.failed_charges_count) > 0 && (
+              <span className="text-xs text-red-500 font-medium">{user.failed_charges_count} נכשלו</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-gray-300 text-sm">—</span>
+        )}
+      </td>
+      <td className="px-4 py-4">
         {user.has_payment_method ? (
           <span className="flex items-center gap-1 text-emerald-600 text-sm">
             <CreditCard className="w-4 h-4" />
@@ -1174,9 +1214,14 @@ function UserTableRow({ user, currentUser, onSelect, showToast, onRefresh }) {
         {user.active_bots_count > 0 && <span className="text-emerald-500 mr-1">({user.active_bots_count})</span>}
       </td>
       <td className="px-4 py-4">
-        {hasModules ? (
-          <div className="flex gap-1">
-            {user.has_status_bot && <span className="w-2 h-2 rounded-full bg-teal-500" title="סטטוס בוט" />}
+        {(user.active_services && user.active_services.length > 0) || hasModules ? (
+          <div className="flex flex-wrap gap-1">
+            {user.active_services?.map((svc, i) => (
+              <span key={i} className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${svc.status === 'trial' ? 'bg-cyan-100 text-cyan-700' : 'bg-teal-100 text-teal-700'}`} title={svc.name_he}>
+                {svc.name_he?.substring(0, 8) || svc.slug}
+              </span>
+            ))}
+            {!user.active_services?.length && user.has_status_bot && <span className="w-2 h-2 rounded-full bg-teal-500" title="סטטוס בוט" />}
             {user.group_forwards_count > 0 && <span className="w-2 h-2 rounded-full bg-blue-500" title="העברות" />}
             {user.broadcast_campaigns_count > 0 && <span className="w-2 h-2 rounded-full bg-purple-500" title="שידורים" />}
           </div>
@@ -1433,6 +1478,12 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
               <div className="text-white/70 text-sm">קונטקטים</div>
             </div>
             <div>
+              <div className="text-2xl font-bold">
+                {user.effective_monthly_amount > 0 ? `₪${parseFloat(user.effective_monthly_amount).toFixed(0)}` : '₪0'}
+              </div>
+              <div className="text-white/70 text-sm">חיוב חודשי</div>
+            </div>
+            <div>
               <div className={`text-2xl font-bold ${user.has_payment_method ? 'text-green-300' : 'text-red-300'}`}>
                 {user.has_payment_method ? '✓' : '✕'}
               </div>
@@ -1445,6 +1496,39 @@ function UserDetailDrawer({ user, onClose, onRefresh, currentUser, showToast }) 
               <div className="text-white/70 text-sm">וואטסאפ</div>
             </div>
           </div>
+
+          {/* Billing Alerts */}
+          {(() => {
+            const alerts = [];
+            const planPrice = parseFloat(user.plan_price) || 0;
+            const hasActiveSubscription = user.subscription_status === 'active' && planPrice > 0;
+            const hasBillingScheduled = user.next_charge_date || user.next_pending_charge_date;
+            const failedCount = parseInt(user.failed_charges_count) || 0;
+
+            if (hasActiveSubscription && !user.has_payment_method && !user.is_manual) {
+              alerts.push({ color: 'bg-red-500/30', icon: '💳', text: 'מנוי פעיל ללא אמצעי תשלום' });
+            }
+            if (hasActiveSubscription && !hasBillingScheduled && !user.is_manual) {
+              alerts.push({ color: 'bg-orange-500/30', icon: '⚠️', text: 'מנוי פעיל ללא חיוב מתוזמן' });
+            }
+            if (failedCount > 0) {
+              alerts.push({ color: 'bg-red-500/30', icon: '❌', text: `${failedCount} חיובים שנכשלו` });
+            }
+            if (user.is_manual && hasActiveSubscription && !hasBillingScheduled) {
+              alerts.push({ color: 'bg-purple-500/30', icon: '🎁', text: 'מנוי ידני ללא חיוב' });
+            }
+
+            if (alerts.length === 0) return null;
+            return (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {alerts.map((alert, i) => (
+                  <span key={i} className={`px-3 py-1 ${alert.color} rounded-lg text-sm font-medium flex items-center gap-1`}>
+                    {alert.icon} {alert.text}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Section Tabs */}
@@ -1883,8 +1967,8 @@ function SubscriptionSection({ user, plans, affiliates, onRefresh, showToast }) 
             <label className="flex items-center gap-3 cursor-pointer">
               <input type="checkbox" checked={formData.isManual} onChange={(e) => setFormData(f => ({ ...f, isManual: e.target.checked }))} className="w-5 h-5 rounded text-purple-600" />
               <div>
-                <span className="font-medium text-purple-800 dark:text-purple-400">מנוי ידני (ללא תשלום)</span>
-                <p className="text-xs text-purple-600 dark:text-purple-500">גישה מלאה ללא צורך באשראי</p>
+                <span className="font-medium text-purple-800 dark:text-purple-400">מנוי ידני</span>
+                <p className="text-xs text-purple-600 dark:text-purple-500">הקצאה ידנית - ניתן להגדיר חיוב בנפרד</p>
               </div>
             </label>
           </div>
@@ -1974,12 +2058,16 @@ function SubscriptionSection({ user, plans, affiliates, onRefresh, showToast }) 
             </div>
           )}
 
-          {!formData.isManual && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">תאריך חיוב הבא</label>
-              <input type="date" value={formData.nextChargeDate} onChange={(e) => setFormData(f => ({ ...f, nextChargeDate: e.target.value }))} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl" />
-            </div>
-          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              תאריך חיוב הבא
+              {formData.isManual && <span className="text-xs text-purple-500 mr-2">(אופציונלי - מנוי ידני)</span>}
+            </label>
+            <input type="date" value={formData.nextChargeDate} onChange={(e) => setFormData(f => ({ ...f, nextChargeDate: e.target.value }))} className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl" />
+            {formData.isManual && !formData.nextChargeDate && (
+              <p className="text-xs text-orange-500 mt-1 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> ללא תאריך חיוב - המשתמש לא יחויב אוטומטית</p>
+            )}
+          </div>
 
           <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-sm space-y-3">
             <div>
@@ -3081,6 +3169,10 @@ function ServicesSection({ userId, userName, showToast }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
   const [trialForm, setTrialForm] = useState({ serviceId: null, days: 14 });
+  const [editingService, setEditingService] = useState(null); // serviceId being edited
+  const [editForm, setEditForm] = useState({});
+  const [scheduling, setScheduling] = useState(null); // serviceId for charge scheduling
+  const [scheduleForm, setScheduleForm] = useState({ amount: '', chargeDate: '', description: '' });
 
   useEffect(() => { loadData(); }, []);
 
@@ -3131,6 +3223,43 @@ function ServicesSection({ userId, userName, showToast }) {
     finally { setSaving(null); }
   };
 
+  const startEditing = (serviceId, userSub) => {
+    setEditingService(serviceId);
+    setEditForm({
+      status: userSub.status || 'active',
+      customPrice: userSub.custom_price || '',
+      nextChargeDate: userSub.next_charge_date ? userSub.next_charge_date.split('T')[0] : (userSub.next_pending_charge_date ? userSub.next_pending_charge_date.split('T')[0] : ''),
+      billingPeriod: userSub.billing_period || 'monthly',
+      isManual: userSub.is_manual || false,
+      adminNotes: userSub.admin_notes || '',
+      expiresAt: userSub.expires_at ? userSub.expires_at.split('T')[0] : '',
+      allowNewCampaign: userSub.allow_new_campaign !== false,
+    });
+  };
+
+  const handleSaveEdit = async (serviceId) => {
+    setSaving(serviceId);
+    try {
+      await api.put(`/services/admin/${serviceId}/subscription/${userId}`, editForm);
+      showToast('success', 'מנוי השירות עודכן');
+      setEditingService(null);
+      loadData();
+    } catch (err) { showToast('error', err.response?.data?.error || 'שגיאה בעדכון'); }
+    finally { setSaving(null); }
+  };
+
+  const handleScheduleCharge = async (serviceId) => {
+    setSaving(serviceId);
+    try {
+      await api.post(`/services/admin/${serviceId}/charge/${userId}`, scheduleForm);
+      showToast('success', 'חיוב תוזמן בהצלחה');
+      setScheduling(null);
+      setScheduleForm({ amount: '', chargeDate: '', description: '' });
+      loadData();
+    } catch (err) { showToast('error', err.response?.data?.error || 'שגיאה בתזמון חיוב'); }
+    finally { setSaving(null); }
+  };
+
   if (loading) return <div className="flex justify-center py-12"><RefreshCw className="w-8 h-8 animate-spin text-violet-500" /></div>;
 
   return (
@@ -3140,25 +3269,134 @@ function ServicesSection({ userId, userName, showToast }) {
       ) : services.map(service => {
         const userSub = userServices.find(us => us.service_id === service.id);
         const isActive = userSub && (userSub.status === 'active' || userSub.status === 'trial');
+        const isEditing = editingService === service.id;
+        const isScheduling = scheduling === service.id;
+        const effectivePrice = userSub?.custom_price ? parseFloat(userSub.custom_price) : parseFloat(service.price);
+
         return (
-          <div key={service.id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
+          <div key={service.id} className={`p-4 border rounded-xl ${isActive ? 'bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'}`}>
+            {/* Header */}
             <div className="flex items-start justify-between mb-3">
               <div>
                 <h4 className="font-medium text-gray-800 dark:text-white flex items-center gap-2">
                   {service.icon && <span>{service.icon}</span>}
                   {service.name_he || service.name}
                   {isActive && <span className={`text-xs px-2 py-0.5 rounded-full ${userSub.status === 'trial' ? 'bg-cyan-100 text-cyan-700' : 'bg-green-100 text-green-700'}`}>{userSub.status === 'trial' ? 'ניסיון' : 'פעיל'}</span>}
+                  {userSub?.is_manual && <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">ידני</span>}
                 </h4>
-                <p className="text-xs text-gray-500 mt-1">₪{service.price}/חודש</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  מחיר ברירת מחדל: ₪{service.price}/חודש
+                  {userSub?.custom_price && <span className="text-violet-600 font-medium mr-2">| מחיר מותאם: ₪{userSub.custom_price}</span>}
+                </p>
               </div>
+              {isActive && (
+                <button onClick={() => isEditing ? setEditingService(null) : startEditing(service.id, userSub)} className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                  <Settings className="w-4 h-4 text-gray-500" />
+                </button>
+              )}
             </div>
-            {userSub && (
-              <div className="mb-3 p-2 bg-white dark:bg-gray-700 rounded-lg text-xs text-gray-600 dark:text-gray-400 space-y-1">
+
+            {/* Current Status Info */}
+            {userSub && !isEditing && (
+              <div className="mb-3 p-3 bg-white dark:bg-gray-700 rounded-lg text-xs text-gray-600 dark:text-gray-400 space-y-1.5">
                 <div className="flex justify-between"><span>סטטוס:</span><span className={userSub.status === 'active' ? 'text-green-600 font-medium' : userSub.status === 'trial' ? 'text-cyan-600 font-medium' : 'text-gray-600'}>{userSub.status === 'active' ? 'פעיל' : userSub.status === 'trial' ? 'ניסיון' : userSub.status === 'cancelled' ? 'מבוטל' : userSub.status}</span></div>
                 {userSub.trial_ends_at && <div className="flex justify-between"><span>סיום ניסיון:</span><span>{new Date(userSub.trial_ends_at).toLocaleDateString('he-IL')}</span></div>}
-                {userSub.is_manual && <div className="text-purple-600">✓ מנוי ידני</div>}
+                {userSub.expires_at && <div className="flex justify-between"><span>תוקף:</span><span>{new Date(userSub.expires_at).toLocaleDateString('he-IL')}</span></div>}
+                <div className="flex justify-between"><span>מחיר אפקטיבי:</span><span className="font-medium text-gray-800 dark:text-gray-200">₪{effectivePrice}/חודש</span></div>
+                {(userSub.next_charge_date || userSub.next_pending_charge_date) && (
+                  <div className="flex justify-between"><span>חיוב הבא:</span><span className="font-medium">{new Date(userSub.next_pending_charge_date || userSub.next_charge_date).toLocaleDateString('he-IL')}{userSub.next_pending_charge_amount ? ` (₪${userSub.next_pending_charge_amount})` : ''}</span></div>
+                )}
+                {!userSub.next_charge_date && !userSub.next_pending_charge_date && isActive && !userSub.is_manual && (
+                  <div className="flex items-center gap-1 text-orange-600 font-medium"><AlertTriangle className="w-3 h-3" /> אין חיוב מתוזמן!</div>
+                )}
+                {parseInt(userSub.failed_charges_count) > 0 && (
+                  <div className="flex items-center gap-1 text-red-600 font-medium"><AlertCircle className="w-3 h-3" /> {userSub.failed_charges_count} חיובים שנכשלו</div>
+                )}
+                {parseFloat(userSub.total_paid) > 0 && (
+                  <div className="flex justify-between"><span>סה"כ שולם:</span><span className="font-medium text-green-600">₪{parseFloat(userSub.total_paid).toFixed(0)}</span></div>
+                )}
+                {userSub.admin_notes && <div className="pt-1 border-t border-gray-200 dark:border-gray-600 text-gray-500 italic">{userSub.admin_notes}</div>}
               </div>
             )}
+
+            {/* Edit Form */}
+            {isEditing && (
+              <div className="mb-3 p-3 bg-white dark:bg-gray-700 rounded-lg space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">סטטוס</label>
+                    <select value={editForm.status} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-white">
+                      <option value="active">פעיל</option>
+                      <option value="trial">ניסיון</option>
+                      <option value="cancelled">מבוטל</option>
+                      <option value="expired">פג תוקף</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">מחיר מותאם (₪)</label>
+                    <input type="number" min="0" step="1" value={editForm.customPrice} onChange={e => setEditForm(f => ({ ...f, customPrice: e.target.value }))} placeholder={`${service.price} (ברירת מחדל)`} className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">תאריך חיוב הבא</label>
+                    <input type="date" value={editForm.nextChargeDate} onChange={e => setEditForm(f => ({ ...f, nextChargeDate: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">תקופת חיוב</label>
+                    <select value={editForm.billingPeriod} onChange={e => setEditForm(f => ({ ...f, billingPeriod: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-white">
+                      <option value="monthly">חודשי</option>
+                      <option value="yearly">שנתי</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">תוקף (תאריך סיום)</label>
+                    <input type="date" value={editForm.expiresAt} onChange={e => setEditForm(f => ({ ...f, expiresAt: e.target.value }))} className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-white" />
+                  </div>
+                  <div className="flex items-center gap-2 pt-5">
+                    <input type="checkbox" id={`manual-${service.id}`} checked={editForm.isManual} onChange={e => setEditForm(f => ({ ...f, isManual: e.target.checked }))} className="rounded" />
+                    <label htmlFor={`manual-${service.id}`} className="text-sm text-gray-700 dark:text-gray-300">מנוי ידני</label>
+                  </div>
+                  <div className="flex items-center gap-2 pt-5">
+                    <input type="checkbox" id={`allow-campaign-${service.id}`} checked={editForm.allowNewCampaign !== false} onChange={e => setEditForm(f => ({ ...f, allowNewCampaign: e.target.checked }))} className="rounded" />
+                    <label htmlFor={`allow-campaign-${service.id}`} className="text-sm text-gray-700 dark:text-gray-300">אפשר התחלת מעקב חדש</label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">הערות אדמין</label>
+                  <textarea value={editForm.adminNotes} onChange={e => setEditForm(f => ({ ...f, adminNotes: e.target.value }))} rows={2} className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-white resize-none" placeholder="הערות פנימיות..." />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleSaveEdit(service.id)} disabled={saving === service.id} className="px-4 py-1.5 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 font-medium">{saving === service.id ? '...' : 'שמור'}</button>
+                  <button onClick={() => setEditingService(null)} className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400">ביטול</button>
+                </div>
+              </div>
+            )}
+
+            {/* Schedule Charge Form */}
+            {isScheduling && (
+              <div className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg space-y-3">
+                <h5 className="text-sm font-medium text-yellow-800 dark:text-yellow-400 flex items-center gap-1"><DollarSign className="w-4 h-4" /> תזמון חיוב חדש</h5>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">סכום (₪)</label>
+                    <input type="number" min="0" step="1" value={scheduleForm.amount} onChange={e => setScheduleForm(f => ({ ...f, amount: e.target.value }))} placeholder={`${effectivePrice}`} className="w-full px-2 py-1.5 text-sm border rounded-lg" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">תאריך חיוב</label>
+                    <input type="date" value={scheduleForm.chargeDate} onChange={e => setScheduleForm(f => ({ ...f, chargeDate: e.target.value }))} className="w-full px-2 py-1.5 text-sm border rounded-lg" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">תיאור</label>
+                    <input type="text" value={scheduleForm.description} onChange={e => setScheduleForm(f => ({ ...f, description: e.target.value }))} placeholder="חיוב ידני" className="w-full px-2 py-1.5 text-sm border rounded-lg" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => handleScheduleCharge(service.id)} disabled={saving === service.id} className="px-4 py-1.5 text-sm bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 font-medium">{saving === service.id ? '...' : 'תזמן חיוב'}</button>
+                  <button onClick={() => setScheduling(null)} className="px-4 py-1.5 text-sm text-gray-600">ביטול</button>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
             <div className="flex flex-wrap gap-2">
               {!isActive ? (
                 <>
@@ -3175,6 +3413,8 @@ function ServicesSection({ userId, userName, showToast }) {
                 </>
               ) : (
                 <>
+                  {!isEditing && <button onClick={() => startEditing(service.id, userSub)} className="px-3 py-1.5 text-sm bg-violet-50 text-violet-700 rounded-lg hover:bg-violet-100 border border-violet-200 flex items-center gap-1"><Edit className="w-3 h-3" /> עריכה</button>}
+                  <button onClick={() => setScheduling(isScheduling ? null : service.id)} className="px-3 py-1.5 text-sm bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 border border-yellow-200 flex items-center gap-1"><DollarSign className="w-3 h-3" /> תזמן חיוב</button>
                   <button onClick={() => handleCancel(service.id)} disabled={saving === service.id} className="px-3 py-1.5 text-sm bg-red-50 text-red-700 rounded-lg hover:bg-red-100 border border-red-200 disabled:opacity-50">{saving === service.id ? '...' : 'בטל מנוי'}</button>
                   {userSub?.status === 'trial' && (
                     <button onClick={() => handleAssign(service.id)} disabled={saving === service.id} className="px-3 py-1.5 text-sm bg-green-50 text-green-700 rounded-lg hover:bg-green-100 border border-green-200 disabled:opacity-50">הפוך לפעיל</button>

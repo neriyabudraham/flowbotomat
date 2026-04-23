@@ -30,12 +30,18 @@ import GroupTransfersPage from './pages/GroupTransfersPage';
 import BroadcastsPage from './pages/BroadcastsPage';
 import ServicesPage from './pages/ServicesPage';
 import SubAccountsPage from './pages/SubAccountsPage';
+import SaveContactBotPage from './pages/saveContactBot/SaveContactBotPage';
+import SaveContactBotLandingPage from './pages/saveContactBot/SaveContactBotLandingPage';
+import SaveContactBotSubscribePage from './pages/saveContactBot/SaveContactBotSubscribePage';
 import StatusBotLandingPage from './pages/statusBot/StatusBotLandingPage';
 import StatusBotDashboardPage from './pages/statusBot/StatusBotDashboardPage';
 import StatusBotSubscribePage from './pages/statusBot/StatusBotSubscribePage';
 import ViewFilterLandingPage from './pages/viewFilter/ViewFilterLandingPage';
 import ViewFilterSubscribePage from './pages/viewFilter/ViewFilterSubscribePage';
 import ViewFilterDashboardPage from './pages/viewFilter/ViewFilterDashboardPage';
+import ContactCleanupPage from './pages/viewFilter/ContactCleanupPage';
+import ContactBackupsPage from './pages/viewFilter/ContactBackupsPage';
+import GoogleContactCleanupPage from './pages/viewFilter/GoogleContactCleanupPage';
 import DirectPaymentPage from './pages/DirectPaymentPage';
 import ConnectPage from './pages/ConnectPage';
 import ConnectWhatsAppPage from './pages/ConnectWhatsAppPage';
@@ -175,12 +181,18 @@ function App() {
           <Route path="/group-transfers" element={<GroupTransfersPage />} />
           <Route path="/broadcasts" element={<BroadcastsPage />} />
           <Route path="/services" element={<ServicesPage />} />
+          <Route path="/save-contact-bot" element={<SaveContactBotLandingPage />} />
+          <Route path="/save-contact-bot/subscribe" element={<SaveContactBotSubscribePage />} />
+          <Route path="/save-contact-bot/dashboard" element={<SaveContactBotPage />} />
           <Route path="/status-bot" element={<StatusBotLandingPage />} />
           <Route path="/status-bot/dashboard" element={<StatusBotDashboardPage />} />
           <Route path="/status-bot/subscribe" element={<StatusBotSubscribePage />} />
           <Route path="/view-filter" element={<ViewFilterLandingPage />} />
           <Route path="/view-filter/subscribe" element={<ViewFilterSubscribePage />} />
           <Route path="/view-filter/dashboard" element={<ViewFilterDashboardPage />} />
+          <Route path="/view-filter/cleanup" element={<ContactCleanupPage />} />
+          <Route path="/view-filter/cleanup/backups" element={<ContactBackupsPage />} />
+          <Route path="/view-filter/cleanup/google" element={<GoogleContactCleanupPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/admin/templates/edit/:templateId" element={<TemplateEditorPage />} />

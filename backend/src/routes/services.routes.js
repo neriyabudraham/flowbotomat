@@ -58,4 +58,10 @@ router.post('/admin/:serviceId/assign', authMiddleware, superadminMiddleware, se
 // Cancel user's subscription (admin)
 router.post('/admin/:serviceId/cancel/:userId', authMiddleware, superadminMiddleware, servicesController.adminCancelSubscription);
 
+// Update user's service subscription (admin) - full billing control
+router.put('/admin/:serviceId/subscription/:userId', authMiddleware, superadminMiddleware, servicesController.adminUpdateSubscription);
+
+// Schedule a charge for a service subscription (admin)
+router.post('/admin/:serviceId/charge/:userId', authMiddleware, superadminMiddleware, servicesController.adminScheduleServiceCharge);
+
 module.exports = router;

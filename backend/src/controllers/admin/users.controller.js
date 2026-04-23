@@ -7,11 +7,11 @@ const { hashPassword } = require('../../services/auth/hash.service');
  */
 async function getUsers(req, res) {
   try {
-    const { 
-      page = 1, 
-      limit = 20, 
-      search, 
-      role, 
+    const {
+      page = 1,
+      limit = 20,
+      search,
+      role,
       status,
       sort = 'created_at',
       order = 'desc',
@@ -19,7 +19,13 @@ async function getUsers(req, res) {
       no_payment_method,
       has_payment,
       has_modules,
-      whatsapp_connected
+      whatsapp_connected,
+      // Billing filters
+      no_billing_scheduled,
+      has_failed_charges,
+      has_service,
+      manual_with_billing,
+      manual_without_billing
     } = req.query;
     const offset = (page - 1) * limit;
     
@@ -81,7 +87,34 @@ async function getUsers(req, res) {
     if (whatsapp_connected === 'true') {
       whereClause += ` AND EXISTS(SELECT 1 FROM whatsapp_connections wc2 WHERE wc2.user_id = u.id AND wc2.status = 'connected')`;
     }
-    
+
+    // Active subscription with no scheduled billing (the core problem)
+    if (no_billing_scheduled === 'true') {
+      whereClause += ` AND us.status = 'active' AND sp.price > 0 AND us.next_charge_date IS NULL AND NOT EXISTS(SELECT 1 FROM billing_queue bq WHERE bq.user_id = u.id AND bq.status = 'pending')`;
+    }
+
+    // Users with failed charges
+    if (has_failed_charges === 'true') {
+      whereClause += ` AND EXISTS(SELECT 1 FROM billing_queue bq WHERE bq.user_id = u.id AND bq.status = 'failed')`;
+    }
+
+    // Filter by specific service (e.g. status_bot)
+    if (has_service) {
+      whereClause += ` AND EXISTS(SELECT 1 FROM user_service_subscriptions uss JOIN additional_services asvc ON asvc.id = uss.service_id WHERE uss.user_id = u.id AND uss.status IN ('active', 'trial') AND asvc.slug = $${paramIndex})`;
+      params.push(has_service);
+      paramIndex++;
+    }
+
+    // Manual subscriptions with billing configured
+    if (manual_with_billing === 'true') {
+      whereClause += ` AND us.is_manual = true AND us.next_charge_date IS NOT NULL`;
+    }
+
+    // Manual subscriptions without billing (free grants)
+    if (manual_without_billing === 'true') {
+      whereClause += ` AND us.is_manual = true AND us.next_charge_date IS NULL`;
+    }
+
     // Validate sort column
     const allowedSortColumns = ['name', 'email', 'created_at', 'subscription_status', 'bots_count', 'contacts_count'];
     const sortColumn = allowedSortColumns.includes(sort) ? sort : 'created_at';
@@ -160,7 +193,19 @@ async function getUsers(req, res) {
               (SELECT COUNT(*) FROM broadcast_campaigns bc WHERE bc.user_id = u.id) as broadcast_campaigns_count,
               (SELECT SUM(bc.total_recipients) FROM broadcast_campaigns bc WHERE bc.user_id = u.id) as broadcast_recipients_total,
               EXISTS(SELECT 1 FROM user_service_subscriptions uss WHERE uss.user_id = u.id AND uss.status IN ('active', 'trial')) as has_status_bot,
-              (SELECT uss.status FROM user_service_subscriptions uss WHERE uss.user_id = u.id LIMIT 1) as status_bot_status
+              (SELECT uss.status FROM user_service_subscriptions uss WHERE uss.user_id = u.id LIMIT 1) as status_bot_status,
+              -- Billing info
+              (SELECT COUNT(*) FROM billing_queue bq WHERE bq.user_id = u.id AND bq.status = 'failed') as failed_charges_count,
+              (SELECT bq.charge_date FROM billing_queue bq WHERE bq.user_id = u.id AND bq.status = 'pending' ORDER BY bq.charge_date ASC LIMIT 1) as next_pending_charge_date,
+              (SELECT bq.amount FROM billing_queue bq WHERE bq.user_id = u.id AND bq.status = 'pending' ORDER BY bq.charge_date ASC LIMIT 1) as next_pending_charge_amount,
+              -- Effective monthly amount (with discounts)
+              CASE
+                WHEN us.custom_discount_mode = 'fixed_price' AND us.custom_fixed_price IS NOT NULL THEN us.custom_fixed_price
+                WHEN us.custom_discount_mode = 'percent' AND us.referral_discount_percent IS NOT NULL THEN ROUND(sp.price * (1 - us.referral_discount_percent / 100.0), 2)
+                ELSE sp.price
+              END as effective_monthly_amount,
+              -- Active services list
+              (SELECT json_agg(json_build_object('slug', asvc.slug, 'name_he', asvc.name_he, 'status', uss2.status)) FROM user_service_subscriptions uss2 JOIN additional_services asvc ON asvc.id = uss2.service_id WHERE uss2.user_id = u.id AND uss2.status IN ('active', 'trial')) as active_services
        FROM users u
        LEFT JOIN user_subscriptions us ON us.user_id = u.id
        LEFT JOIN subscription_plans sp ON sp.id = us.plan_id
@@ -536,26 +581,30 @@ async function updateUserSubscription(req, res) {
       values.push(adminNotes);
     }
     
-    // Handle manual subscription - clear payment-related fields
-    // This must come BEFORE other trial/payment settings to avoid duplicate assignments
+    // Handle manual subscription
+    // Manual subscriptions can now optionally have billing (next_charge_date)
+    // Only clear trial fields when switching to manual, but preserve next_charge_date if explicitly set
     if (isManual === true) {
       updates.push(`is_trial = false`);
       updates.push(`trial_ends_at = NULL`);
-      updates.push(`next_charge_date = NULL`);
-    } else {
-      // Payment date settings (only if not manual)
-      if (nextChargeDate !== undefined) {
-        updates.push(`next_charge_date = $${paramIndex++}`);
-        values.push(nextChargeDate || null);
+      // Only clear next_charge_date if not explicitly provided in this request
+      if (nextChargeDate === undefined) {
+        updates.push(`next_charge_date = NULL`);
       }
-      if (trialEndsAt !== undefined) {
-        updates.push(`trial_ends_at = $${paramIndex++}`);
-        values.push(trialEndsAt || null);
-        // If setting trial end date, mark as trial and set status to 'trial'
-        if (trialEndsAt) {
-          updates.push(`is_trial = true`);
-          updates.push(`status = 'trial'`);
-        }
+    }
+
+    // Payment date settings (for both manual and non-manual)
+    if (nextChargeDate !== undefined) {
+      updates.push(`next_charge_date = $${paramIndex++}`);
+      values.push(nextChargeDate || null);
+    }
+    if (trialEndsAt !== undefined && isManual !== true) {
+      updates.push(`trial_ends_at = $${paramIndex++}`);
+      values.push(trialEndsAt || null);
+      // If setting trial end date, mark as trial and set status to 'trial'
+      if (trialEndsAt) {
+        updates.push(`is_trial = true`);
+        updates.push(`status = 'trial'`);
       }
     }
     
@@ -901,18 +950,26 @@ async function clearUserFeatureOverrides(userId) {
 async function getUserServices(req, res) {
   try {
     const { id } = req.params;
-    
+
     const result = await db.query(`
-      SELECT 
+      SELECT
         uss.*,
         s.slug, s.name, s.name_he, s.description_he,
-        s.price, s.yearly_price, s.icon, s.color
+        s.price as service_default_price, s.yearly_price, s.icon, s.color,
+        -- Pending charges for this service
+        (SELECT COUNT(*) FROM billing_queue bq WHERE bq.user_id = uss.user_id AND bq.status = 'pending' AND bq.billing_type = 'status_bot') as pending_charges_count,
+        (SELECT bq.charge_date FROM billing_queue bq WHERE bq.user_id = uss.user_id AND bq.status = 'pending' AND bq.billing_type = 'status_bot' ORDER BY bq.charge_date ASC LIMIT 1) as next_pending_charge_date,
+        (SELECT bq.amount FROM billing_queue bq WHERE bq.user_id = uss.user_id AND bq.status = 'pending' AND bq.billing_type = 'status_bot' ORDER BY bq.charge_date ASC LIMIT 1) as next_pending_charge_amount,
+        -- Failed charges
+        (SELECT COUNT(*) FROM billing_queue bq WHERE bq.user_id = uss.user_id AND bq.status = 'failed' AND bq.billing_type = 'status_bot') as failed_charges_count,
+        -- Total paid for this service
+        (SELECT COALESCE(SUM(sph.amount), 0) FROM service_payment_history sph WHERE sph.user_id = uss.user_id AND sph.service_id = uss.service_id AND sph.status = 'success') as total_paid
       FROM user_service_subscriptions uss
       JOIN additional_services s ON s.id = uss.service_id
       WHERE uss.user_id = $1
       ORDER BY uss.started_at DESC
     `, [id]);
-    
+
     res.json({ subscriptions: result.rows });
   } catch (error) {
     console.error('[Admin] Get user services error:', error);

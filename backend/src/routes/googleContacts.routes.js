@@ -14,6 +14,12 @@ router.get('/auth-url', controller.getAuthUrl);
 router.get('/status', controller.getStatus);
 router.post('/disconnect', controller.disconnect);
 
+// Multi-account management (slot-aware)
+router.get('/accounts', controller.listAccounts);
+router.get('/accounts/auth-url', controller.getNextAuthUrl);
+router.post('/accounts/:slot/primary', controller.setPrimary);
+router.delete('/accounts/:slot', controller.disconnectSlot);
+
 // Contact operations
 router.get('/search', controller.searchContacts);
 router.get('/list', controller.listContacts);

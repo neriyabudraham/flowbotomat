@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import {
-  CheckCircle, Loader2, Users, Table2, AlertCircle, CheckCircle2
+  CheckCircle, Loader2, Users, Table2, AlertCircle, CheckCircle2,
+  Plus, Trash2,
 } from 'lucide-react';
 import axios from 'axios';
 import { toast } from '../store/toastStore';
@@ -14,11 +15,16 @@ export default function ConnectIntegrationsPage() {
 
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [contactAccounts, setContactAccounts] = useState([]);
 
   const fetchStatus = useCallback(async () => {
     try {
-      const { data } = await api.get(`/onboarding/${userId}/status`);
+      const [{ data }, accountsRes] = await Promise.all([
+        api.get(`/onboarding/${userId}/status`),
+        api.get(`/onboarding/${userId}/google-contacts/accounts`).catch(() => ({ data: { accounts: [] } })),
+      ]);
       setStatus(data);
+      setContactAccounts(accountsRes.data.accounts || []);
       return data;
     } catch {
       return null;
@@ -45,6 +51,27 @@ export default function ConnectIntegrationsPage() {
       const { data } = await api.get(`/onboarding/${userId}/google-contacts/url`);
       window.location.href = data.url;
     } catch { toast.error('שגיאה בהתחברות לגוגל'); }
+  };
+
+  const handleSetPrimary = async (slot) => {
+    try {
+      await api.post(`/onboarding/${userId}/google-contacts/accounts/${slot}/primary`);
+      await fetchStatus();
+      toast.success('החשבון הוגדר כראשי');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'שגיאה בקביעת חשבון ראשי');
+    }
+  };
+
+  const handleDisconnectAccount = async (slot, email) => {
+    if (!await toast.confirm(`להסיר את החשבון ${email}?`, { type: 'warning', confirmText: 'הסר', cancelText: 'ביטול' })) return;
+    try {
+      await api.delete(`/onboarding/${userId}/google-contacts/accounts/${slot}`);
+      await fetchStatus();
+      toast.success('החשבון הוסר');
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'שגיאה בהסרה');
+    }
   };
 
   const handleGoogleSheetsConnect = async () => {
@@ -127,15 +154,43 @@ export default function ConnectIntegrationsPage() {
             )}
           </div>
 
-          {contactsConnected ? (
-            <div className="bg-green-50 border border-green-100 rounded-xl p-3 flex items-center gap-3">
-              <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
-              <div>
-                <p className="text-green-700 text-sm font-medium">מחובר לגוגל קונטקטס</p>
-                {status.googleContacts?.email && (
-                  <p className="text-green-500 text-xs">{status.googleContacts.email}</p>
-                )}
-              </div>
+          {contactAccounts.length > 0 ? (
+            <div className="space-y-2">
+              {contactAccounts.map((acc) => (
+                <div key={acc.slot} className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center text-blue-700 text-sm font-bold shrink-0 shadow-sm">
+                    {(acc.email || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-blue-900 truncate" dir="ltr">{acc.email}</p>
+                    {acc.name && <p className="text-xs text-blue-600 truncate">{acc.name}</p>}
+                  </div>
+                  {acc.slot === 0 ? (
+                    <span className="text-[10px] font-bold text-blue-700 bg-white border border-blue-200 px-2 py-0.5 rounded-full">ראשי</span>
+                  ) : (
+                    <button onClick={() => handleSetPrimary(acc.slot)}
+                      className="text-[10px] font-bold text-gray-600 hover:text-blue-700 border border-gray-200 hover:border-blue-200 hover:bg-white px-2 py-0.5 rounded-full transition">
+                      קבע כראשי
+                    </button>
+                  )}
+                  <button onClick={() => handleDisconnectAccount(acc.slot, acc.email)}
+                    className="text-red-400 hover:text-red-600 hover:bg-white p-1 rounded-lg" title="הסר חשבון זה">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={handleGoogleContactsConnect}
+                className="w-full py-2.5 bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 rounded-xl font-medium text-sm transition flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                הוסף חשבון Google נוסף
+              </button>
+              {contactAccounts.length > 1 && (
+                <p className="text-[11px] text-gray-500 leading-relaxed text-center px-1">
+                  סנכרון אנשי קשר חדשים מתבצע בחשבון הראשי. כשהוא מגיע ל-25,000 אנשי קשר, המערכת עוברת אוטומטית לחשבון הבא.
+                </p>
+              )}
             </div>
           ) : (
             <button

@@ -57,6 +57,10 @@ services:
       CLOUD_API_ACCESS_TOKEN: ${CLOUD_API_ACCESS_TOKEN}
       CLOUD_API_VERIFY_TOKEN: ${CLOUD_API_VERIFY_TOKEN}
       CLOUD_API_APP_SECRET: ${CLOUD_API_APP_SECRET}
+      SAVE_CONTACT_BOT_PHONE_ID: ${SAVE_CONTACT_BOT_PHONE_ID}
+      SAVE_CONTACT_BOT_WABA_ID: ${SAVE_CONTACT_BOT_WABA_ID}
+      SAVE_CONTACT_BOT_ACCESS_TOKEN: ${SAVE_CONTACT_BOT_ACCESS_TOKEN}
+      SAVE_CONTACT_BOT_VERIFY_TOKEN: ${SAVE_CONTACT_BOT_VERIFY_TOKEN}
       ENABLE_QUEUE_PROCESSOR: "false"
       DB_POOL_MAX: "50"
     ports:
@@ -65,6 +69,7 @@ services:
       - ./backend:/app
       - /app/node_modules
       - uploads_data:/app/uploads
+      - ./logs:/app/logs
     depends_on:
       db:
         condition: service_healthy
@@ -76,7 +81,13 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    stop_grace_period: 30s
+    # Persist docker logs across container rebuilds (max 100MB × 10 files)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    stop_grace_period: 200s
     mem_limit: 3g
     memswap_limit: 3g
 

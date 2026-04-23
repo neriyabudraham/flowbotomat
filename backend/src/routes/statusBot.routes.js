@@ -8,6 +8,13 @@ const authMiddleware = require('../middlewares/auth.middleware');
 const { adminMiddleware, superadminMiddleware } = require('../middlewares/admin.middleware');
 const statusBotController = require('../controllers/statusBot/statusBot.controller');
 const settingsController = require('../controllers/admin/settings.controller');
+const importedContactsController = require('../controllers/statusBot/importedContacts.controller');
+
+// In-memory upload for CSV/VCF parsing (20MB cap)
+const contactsUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+}).single('file');
 
 // Configure multer for status bot uploads
 const uploadsDir = path.join(__dirname, '../../uploads/status-bot');
@@ -66,6 +73,7 @@ router.patch('/settings', authMiddleware, statusBotController.updateSettings);
 router.get('/authorized-numbers', authMiddleware, statusBotController.getAuthorizedNumbers);
 router.post('/authorized-numbers', authMiddleware, statusBotController.addAuthorizedNumber);
 router.delete('/authorized-numbers/:numberId', authMiddleware, statusBotController.removeAuthorizedNumber);
+router.patch('/authorized-numbers/:numberId/can-import', authMiddleware, statusBotController.updateAuthorizedCanImport);
 
 // Status upload
 router.post('/status/text', authMiddleware, statusBotController.uploadTextStatus);
@@ -109,6 +117,19 @@ router.delete('/pending-statuses/:statusId', authMiddleware, statusBotController
 // Contacts cache refresh
 router.post('/contacts/refresh', authMiddleware, statusBotController.refreshContactsCache);
 
+// Imported contacts (manual / CSV / VCF / Google) — only for contacts format
+router.get('/imported-contacts', authMiddleware, importedContactsController.list);
+router.post('/imported-contacts/preview', authMiddleware, contactsUpload, importedContactsController.preview);
+router.post('/imported-contacts/import', authMiddleware, contactsUpload, importedContactsController.importContacts);
+router.post('/imported-contacts/add', authMiddleware, importedContactsController.addOne);
+router.delete('/imported-contacts/:id', authMiddleware, importedContactsController.removeOne);
+router.delete('/imported-contacts', authMiddleware, importedContactsController.clearAll);
+router.patch('/imported-contacts/toggle', authMiddleware, importedContactsController.toggleUse);
+// Google Contacts sync
+router.get('/imported-contacts/google/status', authMiddleware, importedContactsController.googleStatus);
+router.post('/imported-contacts/google/preview', authMiddleware, importedContactsController.googlePreview);
+router.post('/imported-contacts/google/import', authMiddleware, importedContactsController.googleImport);
+
 // User colors management
 router.get('/colors', authMiddleware, settingsController.getStatusBotColors);
 router.put('/colors', authMiddleware, settingsController.updateStatusBotColors);
@@ -126,6 +147,8 @@ router.post('/admin/lift-restriction/:connectionId', authMiddleware, superadminM
 router.post('/admin/reset-queue', authMiddleware, adminMiddleware, statusBotController.adminResetQueueLock);
 router.post('/admin/cancel-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminForceCancelItem);
 router.post('/admin/stop-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminForceStopItem);
+router.post('/admin/resume-item/:queueId', authMiddleware, adminMiddleware, statusBotController.adminResumeQueueItem);
+router.patch('/admin/retry-cancel/:queueId', authMiddleware, adminMiddleware, statusBotController.adminToggleRetryCancelled);
 router.post('/admin/sync-phones', authMiddleware, adminMiddleware, statusBotController.adminSyncPhoneNumbers);
 router.get('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminGetQueueSettings);
 router.patch('/admin/queue-settings', authMiddleware, adminMiddleware, statusBotController.adminUpdateQueueSettings);

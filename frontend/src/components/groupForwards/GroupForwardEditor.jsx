@@ -22,8 +22,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
   const [triggerType, setTriggerType] = useState(forward.trigger_type || 'direct');
   const [triggerGroupId, setTriggerGroupId] = useState(forward.trigger_group_id || '');
   const [triggerGroupName, setTriggerGroupName] = useState(forward.trigger_group_name || '');
-  const [delayMin, setDelayMin] = useState(forward.delay_min || 3);
-  const [delayMax, setDelayMax] = useState(forward.delay_max || 10);
+  const [delayMin, setDelayMin] = useState(Math.max(5, forward.delay_min || 5));
+  const [delayMax, setDelayMax] = useState(Math.max(10, forward.delay_max || 10));
   const [requireConfirmation, setRequireConfirmation] = useState(forward.require_confirmation !== false);
   const [notifySenderOnPending, setNotifySenderOnPending] = useState(forward.notify_sender_on_pending !== false);
   const [messageSuffix, setMessageSuffix] = useState(forward.message_suffix || '');
@@ -82,8 +82,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
       setTriggerType(f.trigger_type);
       setTriggerGroupId(f.trigger_group_id || '');
       setTriggerGroupName(f.trigger_group_name || '');
-      setDelayMin(f.delay_min);
-      setDelayMax(f.delay_max);
+      setDelayMin(Math.max(5, f.delay_min || 5));
+      setDelayMax(Math.max(Math.max(5, f.delay_min || 5), f.delay_max || 10));
       setRequireConfirmation(f.require_confirmation !== false);
       setMessageSuffix(f.message_suffix || '');
       setSuffixEnabled(f.suffix_enabled || false);
@@ -140,7 +140,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
         suffix_enabled: suffixEnabled,
         notify_sender_on_pending: notifySenderOnPending,
         poll_multiple_answers: pollMultipleAnswers,
-        allow_all_senders: allowAllSenders,
+        allow_all_senders: triggerType === 'status_bot' ? false : allowAllSenders,
         link_preview: linkPreview,
         trigger_conflict_mode: triggerConflictMode
       });
@@ -702,7 +702,7 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-5">
+              <div className="grid grid-cols-3 gap-5">
                 <button
                   onClick={() => setTriggerType('direct')}
                   className={`group p-6 rounded-2xl border-2 text-right transition-all ${
@@ -712,13 +712,13 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   }`}
                 >
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-all ${
-                    triggerType === 'direct' 
-                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg' 
+                    triggerType === 'direct'
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-purple-100'
                   }`}>
                     <MessageSquare className={`w-7 h-7 ${triggerType === 'direct' ? 'text-white' : 'text-gray-400 group-hover:text-purple-500'}`} />
                   </div>
-                  <h3 className="font-bold text-gray-900 text-lg mb-2">הודעה ישירה לבוט</h3>
+                  <h3 className="font-bold text-gray-900 text-lg mb-2">הודעה ישירה למספר שלי</h3>
                   <p className="text-sm text-gray-500">
                     שלח הודעה ישירות למספר הוואטסאפ שלך והיא תועבר לכל הקבוצות
                   </p>
@@ -729,7 +729,34 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                     </div>
                   )}
                 </button>
-                
+
+                <button
+                  onClick={() => setTriggerType('status_bot')}
+                  className={`group p-6 rounded-2xl border-2 text-right transition-all ${
+                    triggerType === 'status_bot'
+                      ? 'border-teal-500 bg-gradient-to-br from-teal-50 to-cyan-50 shadow-lg'
+                      : 'border-gray-200 hover:border-teal-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-all ${
+                    triggerType === 'status_bot'
+                      ? 'bg-gradient-to-br from-teal-500 to-cyan-500 shadow-lg'
+                      : 'bg-gray-100 group-hover:bg-teal-100'
+                  }`}>
+                    <Zap className={`w-7 h-7 ${triggerType === 'status_bot' ? 'text-white' : 'text-gray-400 group-hover:text-teal-500'}`} />
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-lg mb-2">הבוט הרשמי של המערכת</h3>
+                  <p className="text-sm text-gray-500">
+                    שלח הודעה לבוט הרשמי של המערכת. רק מספרים שאושרו יוכלו להפעיל את ההעברה
+                  </p>
+                  {triggerType === 'status_bot' && (
+                    <div className="mt-4 flex items-center gap-2 text-teal-600 text-sm font-medium">
+                      <Check className="w-4 h-4" />
+                      נבחר
+                    </div>
+                  )}
+                </button>
+
                 <button
                   onClick={() => setTriggerType('group')}
                   className={`group p-6 rounded-2xl border-2 text-right transition-all ${
@@ -739,8 +766,8 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   }`}
                 >
                   <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-all ${
-                    triggerType === 'group' 
-                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg' 
+                    triggerType === 'group'
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-purple-100'
                   }`}>
                     <Users className={`w-7 h-7 ${triggerType === 'group' ? 'text-white' : 'text-gray-400 group-hover:text-purple-500'}`} />
@@ -757,6 +784,31 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                   )}
                 </button>
               </div>
+
+              {triggerType === 'status_bot' && (
+                <div className="p-4 bg-teal-50 border border-teal-200 rounded-xl text-sm text-teal-800 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium mb-1">חשוב לדעת</p>
+                      <p className="text-xs">רק מספרים מורשים (שתגדיר בהמשך) יוכלו לשלוח הודעות לבוט הרשמי ולהפעיל את ההעברה. אין אפשרות "גישה לכולם" בבוט זה.</p>
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-teal-100 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500 mb-0.5">מספר הבוט הרשמי:</p>
+                      <p className="font-mono text-base font-medium text-gray-900" dir="ltr">+972 53-923-2960</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { try { navigator.clipboard.writeText('+972539232960'); } catch(e) {} }}
+                      className="px-3 py-1.5 text-xs bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 font-medium"
+                    >
+                      העתק
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {triggerType === 'group' && (
                 <div className="p-5 bg-gradient-to-r from-gray-50 to-white rounded-2xl border border-gray-200">
@@ -828,35 +880,42 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                 </div>
               </div>
 
-              {/* Allow all senders toggle */}
-              <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm mb-6">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
-                      <Users className="w-5 h-5 text-green-600" />
+              {/* Allow all senders toggle — NOT available for status_bot trigger */}
+              {triggerType !== 'status_bot' ? (
+                <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm mb-6">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+                        <Users className="w-5 h-5 text-green-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">אפשר לכולם לשלוח</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {allowAllSenders
+                            ? 'כל מי ששולח הודעה לטריגר יכול להפעיל שליחה לקבוצות'
+                            : 'רק שולחים ברשימה יכולים להפעיל שליחה'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">אפשר לכולם לשלוח</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {allowAllSenders
-                          ? 'כל מי ששולח הודעה לטריגר יכול להפעיל שליחה לקבוצות'
-                          : 'רק שולחים ברשימה יכולים להפעיל שליחה'}
-                      </p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAllowAllSenders(!allowAllSenders)}
+                      className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
+                        allowAllSenders ? 'bg-green-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                        allowAllSenders ? 'right-1' : 'left-1'
+                      }`} />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setAllowAllSenders(!allowAllSenders)}
-                    className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
-                      allowAllSenders ? 'bg-green-500' : 'bg-gray-300'
-                    }`}
-                  >
-                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                      allowAllSenders ? 'right-1' : 'left-1'
-                    }`} />
-                  </button>
                 </div>
-              </div>
+              ) : (
+                <div className="p-4 bg-teal-50 border border-teal-200 rounded-xl text-sm text-teal-800 mb-6 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs">בבוט הרשמי של המערכת חובה להגדיר מספרים מורשים. אין אפשרות של "גישה לכולם" בבוט זה.</p>
+                </div>
+              )}
 
               {/* Pull group members button */}
               {triggerType === 'group' && triggerGroupId && (
@@ -1264,11 +1323,11 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
                       type="number"
                       value={delayMin}
                       onChange={(e) => {
-                        const val = Math.max(3, parseInt(e.target.value) || 3);
+                        const val = Math.max(5, parseInt(e.target.value) || 5);
                         setDelayMin(val);
                         if (delayMax < val) setDelayMax(val);
                       }}
-                      min={3}
+                      min={5}
                       max={3600}
                       className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400"
                     />
@@ -1294,60 +1353,60 @@ export default function GroupForwardEditor({ forward, onClose, onSave }) {
               {/* Quick Delay Presets */}
               <div className="grid grid-cols-3 gap-4">
                 <button
-                  onClick={() => { setDelayMin(3); setDelayMax(5); }}
+                  onClick={() => { setDelayMin(5); setDelayMax(10); }}
                   className={`group p-4 text-center rounded-2xl border-2 transition-all hover:shadow-md ${
-                    delayMin === 3 && delayMax === 5 
-                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50' 
+                    delayMin === 5 && delayMax === 10
+                      ? 'border-green-500 bg-gradient-to-br from-green-50 to-emerald-50'
                       : 'border-gray-200 hover:border-green-200'
                   }`}
                 >
                   <div className={`w-12 h-12 mx-auto mb-2 rounded-xl flex items-center justify-center transition-all ${
-                    delayMin === 3 && delayMax === 5 
-                      ? 'bg-gradient-to-br from-green-500 to-emerald-500 shadow-lg' 
+                    delayMin === 5 && delayMax === 10
+                      ? 'bg-gradient-to-br from-green-500 to-emerald-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-green-100'
                   }`}>
-                    <Zap className={`w-6 h-6 ${delayMin === 3 && delayMax === 5 ? 'text-white' : 'text-gray-400 group-hover:text-green-500'}`} />
+                    <Zap className={`w-6 h-6 ${delayMin === 5 && delayMax === 10 ? 'text-white' : 'text-gray-400 group-hover:text-green-500'}`} />
                   </div>
                   <span className="font-bold text-gray-800">מהיר</span>
-                  <span className="block text-xs text-gray-500 mt-1">3-5 שניות</span>
+                  <span className="block text-xs text-gray-500 mt-1">5-10 שניות</span>
                 </button>
-                
+
                 <button
-                  onClick={() => { setDelayMin(30); setDelayMax(60); }}
+                  onClick={() => { setDelayMin(10); setDelayMax(20); }}
                   className={`group p-4 text-center rounded-2xl border-2 transition-all hover:shadow-md ${
-                    delayMin === 30 && delayMax === 60 
-                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50' 
+                    delayMin === 10 && delayMax === 20
+                      ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50'
                       : 'border-gray-200 hover:border-blue-200'
                   }`}
                 >
                   <div className={`w-12 h-12 mx-auto mb-2 rounded-xl flex items-center justify-center transition-all ${
-                    delayMin === 30 && delayMax === 60 
-                      ? 'bg-gradient-to-br from-blue-500 to-indigo-500 shadow-lg' 
+                    delayMin === 10 && delayMax === 20
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-blue-100'
                   }`}>
-                    <Clock className={`w-6 h-6 ${delayMin === 30 && delayMax === 60 ? 'text-white' : 'text-gray-400 group-hover:text-blue-500'}`} />
+                    <Clock className={`w-6 h-6 ${delayMin === 10 && delayMax === 20 ? 'text-white' : 'text-gray-400 group-hover:text-blue-500'}`} />
                   </div>
-                  <span className="font-bold text-gray-800">מתון</span>
-                  <span className="block text-xs text-gray-500 mt-1">30-60 שניות</span>
+                  <span className="font-bold text-gray-800">בינוני</span>
+                  <span className="block text-xs text-gray-500 mt-1">10-20 שניות</span>
                 </button>
-                
+
                 <button
-                  onClick={() => { setDelayMin(300); setDelayMax(600); }}
+                  onClick={() => { setDelayMin(30); setDelayMax(60); }}
                   className={`group p-4 text-center rounded-2xl border-2 transition-all hover:shadow-md ${
-                    delayMin === 300 && delayMax === 600 
-                      ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50' 
+                    delayMin === 30 && delayMax === 60
+                      ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-pink-50'
                       : 'border-gray-200 hover:border-purple-200'
                   }`}
                 >
                   <div className={`w-12 h-12 mx-auto mb-2 rounded-xl flex items-center justify-center transition-all ${
-                    delayMin === 300 && delayMax === 600 
-                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg' 
+                    delayMin === 30 && delayMax === 60
+                      ? 'bg-gradient-to-br from-purple-500 to-pink-500 shadow-lg'
                       : 'bg-gray-100 group-hover:bg-purple-100'
                   }`}>
-                    <Clock className={`w-6 h-6 ${delayMin === 300 && delayMax === 600 ? 'text-white' : 'text-gray-400 group-hover:text-purple-500'}`} />
+                    <Clock className={`w-6 h-6 ${delayMin === 30 && delayMax === 60 ? 'text-white' : 'text-gray-400 group-hover:text-purple-500'}`} />
                   </div>
                   <span className="font-bold text-gray-800">איטי</span>
-                  <span className="block text-xs text-gray-500 mt-1">5-10 דקות</span>
+                  <span className="block text-xs text-gray-500 mt-1">30-60 שניות</span>
                 </button>
               </div>
 

@@ -5,7 +5,8 @@ import {
   Phone, Search, ChevronDown, ChevronUp, Activity, MessageCircle, Loader2,
   RotateCcw, PhoneCall, XCircle, AlertTriangle, BarChart3, TrendingUp,
   Trash2, RotateCw, FileText, Calendar, Zap, Timer, ChevronRight, ExternalLink,
-  PauseCircle, PlayCircle, Ban, ListX, StopCircle
+  PauseCircle, PlayCircle, Ban, ListX, StopCircle,
+  Pause, Play
 } from 'lucide-react';
 import api from '../../services/api';
 import { toast } from '../../store/toastStore';
@@ -403,6 +404,30 @@ export default function AdminStatusBot() {
     }
   };
 
+  const handleResumeItem = async (queueId) => {
+    try {
+      const res = await api.post(`/status-bot/admin/resume-item/${queueId}`);
+      toast.success(`▶️ ${res.data.message || 'הסטטוס חודש וימשיך שליחה מאיפה שעצר'}`);
+      loadActiveProcesses();
+      loadData();
+      if (expandedUser) loadUserDetails(expandedUser);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה בחידוש');
+    }
+  };
+
+  const handleToggleRetryCancelled = async (queueId, cancelled) => {
+    try {
+      const res = await api.patch(`/status-bot/admin/retry-cancel/${queueId}`, { cancelled });
+      toast.success(res.data.message || (cancelled ? 'החידוש בוטל' : 'החידוש הופעל מחדש'));
+      loadActiveProcesses();
+      loadData();
+      if (expandedUser) loadUserDetails(expandedUser);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'שגיאה');
+    }
+  };
+
   const handleClearUserErrors = async (connectionId) => {
     if (!await toast.confirm('למחוק את כל השגיאות?')) return;
     
@@ -789,6 +814,7 @@ export default function AdminStatusBot() {
               { key: 'contactsRetryPauseMinutes', label: 'הפסקה לפני retry (דקות)', min: 0.5, step: 0.5 },
               { key: 'viewerTimeoutMs', label: 'טיימאאוט לבאצ׳ צופים (ms)', min: 10000, step: 10000 },
               { key: 'viewerTimeoutRetries', label: 'ניסיונות חוזרים לבאצ׳ צופים', min: 0, step: 1 },
+              { key: 'importedContactsMaxPerUser', label: 'מקסימום אנשי קשר מיובאים למשתמש', min: 1000, step: 1000 },
             ].map(({ key, label, min, step }) => (
               <div key={key}>
                 <label className="text-xs text-gray-500 mb-1 block">{label}</label>
@@ -1438,20 +1464,22 @@ export default function AdminStatusBot() {
                       >
                         {user.status_send_format === 'contacts' ? '👥 אנשי קשר' : '📡 רגיל'}
                       </button>
-                      {/* Viewers-first toggle (only for default format) */}
-                      {user.status_send_format !== 'contacts' && (
-                        <button
-                          onClick={(e) => handleToggleViewersFirst(e, user.id, user.viewers_first_mode)}
-                          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${
-                            user.viewers_first_mode
-                              ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                          }`}
-                          title={user.viewers_first_mode ? 'צופים קודם — לחץ לעבור לרגיל (צופים רק בטיימאאוט)' : 'רגיל (צופים רק בטיימאאוט) — לחץ לעבור לצופים קודם'}
-                        >
-                          {user.viewers_first_mode ? '👁️ צופים קודם' : '⏱️ צופים בטיימאאוט'}
-                        </button>
-                      )}
+                      {/* Viewers-first toggle - available for both formats */}
+                      <button
+                        onClick={(e) => handleToggleViewersFirst(e, user.id, user.viewers_first_mode)}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${
+                          user.viewers_first_mode
+                            ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        }`}
+                        title={
+                          user.status_send_format === 'contacts'
+                            ? (user.viewers_first_mode ? 'צופים → broadcast → יתר אנשי הקשר — לחץ לעבור לשליחה רגילה לכולם' : 'שליחה לכל אנשי הקשר — לחץ לעבור לצופים קודם ב-3 שלבים')
+                            : (user.viewers_first_mode ? 'צופים קודם — לחץ לעבור לרגיל (אנשי קשר בטיימאאוט)' : 'רגיל (אנשי קשר בטיימאאוט) — לחץ לעבור לצופים קודם')
+                        }
+                      >
+                        {user.viewers_first_mode ? '👁️ צופים קודם' : (user.status_send_format === 'contacts' ? '👥 רק אנשי קשר' : '⏱️ אנשי קשר בטיימאאוט')}
+                      </button>
                       <StatBadge icon={Upload} value={user.statuses_today || 0} label="היום" color="purple" />
                       <StatBadge icon={Clock} value={user.pending_count || 0} label="בתור" color="blue" />
                       {hasErrors && (
@@ -1538,9 +1566,17 @@ export default function AdminStatusBot() {
                           <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-2">היסטוריית סטטוסים</h4>
                           <div className="space-y-1.5 max-h-72 overflow-y-auto">
                             {userDetails.queueItems?.slice(0, 15).map(item => {
+                              // A pending item with progress already recorded = continuation of a previously-stopped send
+                              const isResuming = item.queue_status === 'pending' && (item.contacts_sent || 0) > 0 && item.contacts_total > 0;
+                              // A sent item with partial delivery = waiting for user to resume
+                              const isPartial = item.queue_status === 'sent' && item.contacts_total > 0 && (item.contacts_sent || 0) < item.contacts_total;
                               const statusLabels = {
-                                sent: 'נשלח', failed: 'נכשל', processing: 'בשליחה...',
-                                scheduled: 'מתוזמן', pending: 'בתור', cancelled: 'בוטל'
+                                sent: isPartial ? 'חלקי' : 'נשלח',
+                                failed: 'נכשל',
+                                processing: 'בשליחה...',
+                                scheduled: 'מתוזמן',
+                                pending: isResuming ? `ממשיך (${item.contacts_sent}/${item.contacts_total})` : 'בתור',
+                                cancelled: 'בוטל'
                               };
                               // Find matching status record for engagement counts
                               const linkedStatus = userDetails.recentStatuses?.find(s => s.queue_id === item.id);
@@ -1548,6 +1584,8 @@ export default function AdminStatusBot() {
                                 <div
                                   key={item.id}
                                   className={`flex items-center justify-between p-2.5 rounded-lg text-sm cursor-pointer hover:ring-1 hover:ring-blue-300 transition-all ${
+                                    isPartial ? 'bg-orange-50 dark:bg-orange-900/20 ring-1 ring-orange-200' :
+                                    isResuming ? 'bg-violet-50 dark:bg-violet-900/20 ring-1 ring-violet-200' :
                                     item.queue_status === 'sent' ? 'bg-green-50 dark:bg-green-900/20' :
                                     item.queue_status === 'failed' ? 'bg-red-50 dark:bg-red-900/20' :
                                     item.queue_status === 'processing' ? 'bg-amber-50 dark:bg-amber-900/20' :
@@ -1558,6 +1596,8 @@ export default function AdminStatusBot() {
                                   <div className="flex items-center gap-2 flex-1 min-w-0">
                                     <span className="text-lg">{item.status_type === 'text' ? '📝' : item.status_type === 'image' ? '🖼️' : item.status_type === 'video' ? '🎬' : '🎤'}</span>
                                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                      isPartial ? 'bg-orange-100 text-orange-700' :
+                                      isResuming ? 'bg-violet-100 text-violet-700' :
                                       item.queue_status === 'sent' ? 'bg-green-100 text-green-700' :
                                       item.queue_status === 'failed' ? 'bg-red-100 text-red-700' :
                                       item.queue_status === 'processing' ? 'bg-amber-100 text-amber-700' :
@@ -1576,6 +1616,100 @@ export default function AdminStatusBot() {
                                     {item.error_message && <span className="text-red-500 text-xs truncate max-w-[150px]" title={item.error_message}>{item.error_message}</span>}
                                   </div>
                                   <div className="flex items-center gap-3 shrink-0">
+                                    {/* Resume / cancel-retry / restore cluster.
+                                        • "חדש" — resume now (also clears retry_cancelled)
+                                        • "בטל חידוש" — stop the auto-retry cycle
+                                        • "הפעל חידוש" — re-enable auto-retry after cancel
+                                        • Countdown — shows time to next auto-retry
+                                    */}
+                                    {(() => {
+                                      const isFailed = item.queue_status === 'failed';
+                                      const isPartial = item.queue_status === 'sent' && item.contacts_total > 0 && (item.contacts_sent || 0) < item.contacts_total;
+                                      const isCancelled = item.retry_cancelled === true;
+                                      let isStuckProcessing = false;
+                                      if (item.queue_status === 'processing' && item.processing_started_at) {
+                                        const ageMs = now - new Date(item.processing_started_at).getTime();
+                                        isStuckProcessing = ageMs > 3 * 60 * 1000;
+                                      } else if (item.queue_status === 'processing' && !item.processing_started_at) {
+                                        isStuckProcessing = true;
+                                      }
+                                      const isAutoRetrying = !isCancelled
+                                        && item.queue_status === 'pending'
+                                        && item.scheduled_for
+                                        && new Date(item.scheduled_for).getTime() > now
+                                        && (item.first_attempted_at || (item.retry_count || 0) > 0);
+                                      if (!isFailed && !isPartial && !isStuckProcessing && !isAutoRetrying && !isCancelled) return null;
+
+                                      // Countdown (only when auto-retrying, not cancelled)
+                                      let countdownText = null;
+                                      if (isAutoRetrying) {
+                                        const msLeft = new Date(item.scheduled_for).getTime() - now;
+                                        const secs = Math.max(0, Math.round(msLeft / 1000));
+                                        const mm = Math.floor(secs / 60);
+                                        const ss = secs % 60;
+                                        countdownText = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+                                      } else if (isPartial && !isCancelled) {
+                                        countdownText = '~1 דק׳';
+                                      }
+
+                                      return (
+                                        <div className="flex items-center gap-1.5">
+                                          {countdownText && (
+                                            <span
+                                              className="px-1.5 py-0.5 text-[10px] bg-amber-50 text-amber-700 rounded font-mono border border-amber-200 whitespace-nowrap"
+                                              title="חידוש אוטומטי הבא בעוד"
+                                            >
+                                              ⏱ {countdownText}
+                                            </span>
+                                          )}
+
+                                          {isCancelled && (
+                                            <span
+                                              className="px-1.5 py-0.5 text-[10px] bg-gray-100 text-gray-600 rounded border border-gray-200 whitespace-nowrap"
+                                              title={`חידוש בוטל${item.retry_cancelled_at ? ` ב-${new Date(item.retry_cancelled_at).toLocaleString('he-IL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}` : ''}`}
+                                            >
+                                              ⏸ חידוש מבוטל
+                                            </span>
+                                          )}
+
+                                          <button
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              await handleResumeItem(item.id);
+                                            }}
+                                            className="px-2 py-1 text-xs bg-violet-100 text-violet-700 rounded hover:bg-violet-200 font-medium flex items-center gap-1 whitespace-nowrap"
+                                            title={isCancelled ? 'הפעל מיידית (מבטל את ביטול החידוש)' : (countdownText ? 'הפעל מיידית (במקום לחכות)' : 'חדש שליחה מאיפה שעצר')}
+                                          >
+                                            <RotateCw className="w-3 h-3" /> חדש
+                                          </button>
+
+                                          {isCancelled ? (
+                                            <button
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                await handleToggleRetryCancelled(item.id, false);
+                                              }}
+                                              className="px-2 py-1 text-xs bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 font-medium flex items-center gap-1 whitespace-nowrap"
+                                              title="החזר לרלוונטיות — המערכת תתחיל שוב לנסות אוטומטית"
+                                            >
+                                              <Play className="w-3 h-3" /> הפעל חידוש
+                                            </button>
+                                          ) : (isAutoRetrying || isPartial) && (
+                                            <button
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                if (!(await toast.confirm('לעצור חידוש אוטומטי? הסטטוס ייעצר עד שתחליט אחרת'))) return;
+                                                await handleToggleRetryCancelled(item.id, true);
+                                              }}
+                                              className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium flex items-center gap-1 whitespace-nowrap"
+                                              title="עצור את חידוש השליחה האוטומטי. ניתן להחזיר אחר כך"
+                                            >
+                                              <Pause className="w-3 h-3" /> בטל חידוש
+                                            </button>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                     {/* Engagement stats */}
                                     {linkedStatus && (
                                       <div className="flex items-center gap-2 text-xs">

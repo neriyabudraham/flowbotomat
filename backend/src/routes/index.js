@@ -33,6 +33,7 @@ const broadcastAdminRoutes = require('./broadcastAdmin.routes');
 const viewFilterRoutes = require('./viewFilter.routes');
 const onboardingRoutes = require('./onboarding.routes');
 const contactRoutes = require('./contact.routes');
+const saveContactBotRoutes = require('./saveContactBot.routes');
 
 // Mount routes
 router.use('/auth', authRoutes);
@@ -64,6 +65,7 @@ router.use('/status-bot', statusBotRoutes);
 router.use('/broadcast-admin', broadcastAdminRoutes);
 router.use('/view-filter', viewFilterRoutes);
 router.use('/contact', contactRoutes);
+router.use('/save-contact-bot', saveContactBotRoutes);
 
 // Public API (v1)
 router.use('/v1', publicApiRoutes);

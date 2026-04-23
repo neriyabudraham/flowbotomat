@@ -678,8 +678,8 @@ async function startForwardJob(jobId) {
       const baseDelay = Math.random() * (max - min) + min;
       const minVariation = baseDelay * (1 - variation);
       const maxVariation = baseDelay * (1 + variation);
-      // Ensure minimum 3 seconds
-      return Math.max(3, Math.floor(Math.random() * (maxVariation - minVariation) + minVariation));
+      // Ensure minimum 5 seconds
+      return Math.max(5, Math.floor(Math.random() * (maxVariation - minVariation) + minVariation));
     };
     
     // Process messages in batches of 50 for status updates
@@ -945,6 +945,46 @@ async function startForwardJob(jobId) {
           ? `${sendError.message} | ${wahaDetail}`
           : sendError.message;
 
+        // Retry logic: try up to 3 times with exponential backoff
+        const MAX_RETRIES = 3;
+        const currentRetry = (message.retry_count || 0);
+
+        if (currentRetry < MAX_RETRIES) {
+          const nextRetry = currentRetry + 1;
+          // Wait 60, 120, 240 seconds between retries
+          const retryDelayMs = 60000 * Math.pow(2, currentRetry);
+          console.log(`[GroupForwards] Retry ${nextRetry}/${MAX_RETRIES} for ${message.group_id} in ${retryDelayMs / 1000}s`);
+
+          await db.query(`
+            UPDATE forward_job_messages
+            SET status = 'retrying', error_message = $2, retry_count = $3
+            WHERE id = $1
+          `, [message.id, (fullErrorMsg || sendError.message).substring(0, 500), nextRetry]);
+
+          // Schedule retry in background — push back to pending after delay, same job will pick it up
+          setTimeout(async () => {
+            try {
+              await db.query(
+                `UPDATE forward_job_messages SET status = 'pending' WHERE id = $1 AND status = 'retrying'`,
+                [message.id]
+              );
+              // Re-kick the job runner to pick up the now-pending message
+              try {
+                const self = require('./jobs.controller');
+                if (self && typeof self.startForwardJob === 'function') {
+                  self.startForwardJob(job.id).catch(() => {});
+                }
+              } catch (e) { /* non-fatal */ }
+            } catch (e) {
+              console.error('[GroupForwards] Retry schedule error:', e.message);
+            }
+          }, retryDelayMs);
+
+          // Don't count this as a final failure yet — continue to next message
+          continue;
+        }
+
+        // Max retries exhausted — mark as failed
         await db.query(`
           UPDATE forward_job_messages
           SET status = 'failed', error_message = $2
@@ -955,7 +995,7 @@ async function startForwardJob(jobId) {
 
         // Update target with error
         await db.query(`
-          UPDATE group_forward_targets 
+          UPDATE group_forward_targets
           SET last_error = $2
           WHERE id = $1
         `, [message.target_id, sendError.message]);
@@ -1053,20 +1093,65 @@ async function startForwardJob(jobId) {
       total: totalTargets
     });
     
-    // Send completion message via WhatsApp
+    // Detect if job was triggered via the shared status bot (Cloud API) vs the user's own WhatsApp
+    const triggerTypeRes = await db.query(
+      `SELECT gf.trigger_type FROM group_forwards gf WHERE gf.id = $1`,
+      [job.forward_id]
+    );
+    const triggerViaStatusBot = triggerTypeRes.rows[0]?.trigger_type === 'status_bot';
+
+    // Send completion message via WhatsApp (WAHA for regular, Cloud API for status_bot trigger)
     if (senderPhone) {
       if (wasStopped) {
-        await triggerService.sendStoppedMessage(job.user_id, senderPhone, sentCount, totalTargets, shouldDelete);
-        
+        if (triggerViaStatusBot) {
+          try {
+            const cloudApi = require('../../services/cloudApi/cloudApi.service');
+            await cloudApi.sendTextMessage(senderPhone, `⏹️ *השליחה נעצרה*\n\nנשלחו ${sentCount}/${totalTargets} קבוצות${shouldDelete ? '\n🗑️ ההודעות נמחקות...' : ''}`);
+          } catch (e) { console.error('[StatusBotForward] send stopped msg error:', e.message); }
+        } else {
+          await triggerService.sendStoppedMessage(job.user_id, senderPhone, sentCount, totalTargets, shouldDelete);
+        }
+
         // Delete sent messages if requested
         if (shouldDelete && sentCount > 0) {
-          // Pass senderPhone so completion notification will be sent
           deleteJobMessages(jobId, senderPhone).catch(err => {
             console.error(`[GroupForwards] Error deleting messages for job ${jobId}:`, err);
           });
         }
       } else {
-        await triggerService.sendCompletionMessage(job.user_id, senderPhone, jobId, sentCount, failedCount, totalTargets);
+        if (triggerViaStatusBot) {
+          try {
+            const cloudApi = require('../../services/cloudApi/cloudApi.service');
+            let text;
+            if (failedCount === 0 && sentCount === totalTargets) {
+              text = `✅ *השליחה הושלמה בהצלחה!*\n\nההודעה נשלחה ל-*${sentCount}* קבוצות.`;
+            } else if (sentCount === 0) {
+              text = `❌ *השליחה נכשלה*\n\nלא הצלחתי לשלוח לאף קבוצה.`;
+            } else {
+              text = `⚠️ *השליחה הסתיימה*\n\n✅ נשלח: *${sentCount}* קבוצות\n❌ נכשל: *${failedCount}* קבוצות`;
+            }
+
+            if (sentCount > 0) {
+              const sections = [{
+                title: 'פעולות',
+                rows: [
+                  { id: `fwd_edit_${jobId}`, title: '✏️ ערוך הודעות', description: 'ערוך את ההודעות שנשלחו' },
+                  { id: `fwd_delete_${jobId}`, title: '🗑️ מחק הודעות', description: 'מחק את ההודעות שנשלחו' },
+                ]
+              }];
+              await cloudApi.sendListMessage(
+                senderPhone,
+                `${text}\n\nמה לעשות עם ההודעות?`,
+                'פעולות',
+                sections
+              );
+            } else {
+              await cloudApi.sendTextMessage(senderPhone, text);
+            }
+          } catch (e) { console.error('[StatusBotForward] send completion msg error:', e.message); }
+        } else {
+          await triggerService.sendCompletionMessage(job.user_id, senderPhone, jobId, sentCount, failedCount, totalTargets);
+        }
       }
     }
     
@@ -1119,15 +1204,29 @@ const activeUserDeletions = new Map();
 /**
  * Calculate a randomized delay in seconds between min and max with ±10% variation
  */
-function calculateDelay(min = 3, max = 5) {
-  const baseDelay = Math.random() * (max - min) + min;
+function calculateDelay(min = 5, max = 10) {
+  // Enforce minimum 5 seconds even if stored values are older (e.g., pre-migration 3-5)
+  const effectiveMin = Math.max(5, min);
+  const effectiveMax = Math.max(effectiveMin, max);
+  const baseDelay = Math.random() * (effectiveMax - effectiveMin) + effectiveMin;
   const variation = baseDelay * 0.1;
-  return Math.max(3, Math.floor(baseDelay + (Math.random() * variation * 2 - variation)));
+  return Math.max(5, Math.floor(baseDelay + (Math.random() * variation * 2 - variation)));
 }
 
-async function deleteJobMessages(jobId, senderPhone = null) {
+async function deleteJobMessages(jobId, senderPhone = null, notifyChannel = 'waha') {
   const wahaService = require('../../services/waha/session.service');
   const triggerService = require('../../services/groupForwards/trigger.service');
+  const cloudApi = require('../../services/cloudApi/cloudApi.service');
+  const sendNotify = async (text) => {
+    if (!senderPhone) return;
+    if (notifyChannel === 'cloud') {
+      await cloudApi.sendTextMessage(senderPhone, text);
+    } else {
+      const r = await db.query(`SELECT gf.user_id FROM forward_jobs fj JOIN group_forwards gf ON fj.forward_id = gf.id WHERE fj.id = $1`, [jobId]);
+      const uid = r.rows[0]?.user_id;
+      if (uid) await triggerService.sendNotificationMessage(uid, senderPhone, text);
+    }
+  };
 
   try {
     // Get job details with user_id for connection lookup
@@ -1180,12 +1279,8 @@ async function deleteJobMessages(jobId, senderPhone = null) {
         console.log(`[GroupForwards] All messages already deleted for job ${jobId}`);
         
         // Notify user
-        if (senderPhone) {
-          await triggerService.sendNotificationMessage(userId, senderPhone, 
-            '✅ כל ההודעות משליחה זו כבר נמחקו.'
-          );
-        }
-        
+        await sendNotify('✅ כל ההודעות משליחה זו כבר נמחקו.');
+
         return { success: true, deleted: 0, failed: 0, alreadyDeleted: true };
       }
       
@@ -1222,18 +1317,18 @@ async function deleteJobMessages(jobId, senderPhone = null) {
       // Send completion notification via WhatsApp
       if (senderPhone) {
         let notificationMessage;
-        
+
         if (failedGroups.length === 0) {
           notificationMessage = `✅ *כל ההודעות נמחקו בהצלחה!*\n\nנמחקו ${deletedCount} הודעות מהקבוצות.`;
         } else {
           notificationMessage = `⚠️ *המחיקה הסתיימה*\n\n✅ נמחקו: ${deletedCount} הודעות\n❌ נכשלו: ${failedGroups.length} הודעות`;
-          
+
           if (failedGroups.length <= 5) {
             notificationMessage += `\n\n*קבוצות שנכשלו:*\n${failedGroups.map(g => `• ${g}`).join('\n')}`;
           }
         }
-        
-        await triggerService.sendNotificationMessage(userId, senderPhone, notificationMessage);
+
+        await sendNotify(notificationMessage);
       }
       
       // Emit update via socket
@@ -1348,9 +1443,26 @@ async function pinJobMessages(jobId, senderPhone = null, duration = 86400) {
  * @param {string} newText - New text content to replace original message
  * @param {string} senderPhone - Phone to send notification to (optional)
  */
-async function editJobMessages(jobId, newText, senderPhone = null) {
+async function editJobMessages(jobId, newText, senderPhone = null, notifyChannel = 'waha') {
   const wahaService = require('../../services/waha/session.service');
   const triggerService = require('../../services/groupForwards/trigger.service');
+  const cloudApi = require('../../services/cloudApi/cloudApi.service');
+
+  const sendNotify = async (text, sections = null) => {
+    if (!senderPhone) return;
+    if (notifyChannel === 'cloud') {
+      if (sections) {
+        await cloudApi.sendListMessage(senderPhone, text, 'פעולות', sections);
+      } else {
+        await cloudApi.sendTextMessage(senderPhone, text);
+      }
+    } else {
+      // Fallback to WAHA notification
+      const jobResForNotify = await db.query(`SELECT gf.user_id FROM forward_jobs fj JOIN group_forwards gf ON fj.forward_id = gf.id WHERE fj.id = $1`, [jobId]);
+      const uid = jobResForNotify.rows[0]?.user_id;
+      if (uid) await triggerService.sendNotificationMessage(uid, senderPhone, text);
+    }
+  };
 
   try {
     const jobResult = await db.query(`
@@ -1380,9 +1492,7 @@ async function editJobMessages(jobId, newText, senderPhone = null) {
     `, [jobId]);
 
     if (messagesResult.rows.length === 0) {
-      if (senderPhone) {
-        await triggerService.sendNotificationMessage(userId, senderPhone, '❌ אין הודעות שנשלחו לעריכה.');
-      }
+      await sendNotify('❌ אין הודעות שנשלחו לעריכה.');
       return { success: false, edited: 0, failed: 0 };
     }
 
@@ -1424,7 +1534,19 @@ async function editJobMessages(jobId, newText, senderPhone = null) {
       } else {
         msg = `⚠️ *העריכה הסתיימה*\n\n✅ נערכו: ${editedCount}\n❌ נכשלו: ${failedGroups.length}`;
       }
-      await triggerService.sendNotificationMessage(userId, senderPhone, msg);
+
+      if (notifyChannel === 'cloud' && editedCount > 0) {
+        const sections = [{
+          title: 'פעולות',
+          rows: [
+            { id: `fwd_edit_${jobId}`, title: '✏️ ערוך הודעות', description: 'ערוך שוב את ההודעות' },
+            { id: `fwd_delete_${jobId}`, title: '🗑️ מחק הודעות', description: 'מחק את ההודעות שנשלחו' },
+          ]
+        }];
+        await sendNotify(`${msg}\n\nמה לעשות עם ההודעות?`, sections);
+      } else {
+        await sendNotify(msg);
+      }
     }
 
     const io = getIO();

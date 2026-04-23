@@ -4,7 +4,8 @@ import {
   Eye, Users, TrendingUp, Download, Smartphone, Search,
   ChevronDown, ChevronUp, Filter, RefreshCw, Play,
   AlertCircle, CheckCircle, Clock, BarChart2, FileText,
-  ArrowUpRight, User, Heart, ArrowLeft, Shield, Plus, ExternalLink, X, Award, Loader
+  ArrowUpRight, User, Heart, ArrowLeft, Shield, Plus, ExternalLink, X, Award, Loader,
+  Trash2, Cloud, Upload, Star
 } from 'lucide-react';
 import Logo from '../../components/atoms/Logo';
 import NotificationsDropdown from '../../components/notifications/NotificationsDropdown';
@@ -12,6 +13,7 @@ import AccountSwitcher from '../../components/AccountSwitcher';
 import useAuthStore from '../../store/authStore';
 import api from '../../services/api';
 import ViewerProfileModal from '../../components/viewFilter/ViewerProfileModal';
+import ImportKeepListModal from '../../components/viewFilter/ImportKeepListModal';
 
 export default function ViewFilterDashboardPage() {
   const navigate = useNavigate();
@@ -44,6 +46,8 @@ export default function ViewFilterDashboardPage() {
   const [syncResult, setSyncResult] = useState(null);
   const [error, setError] = useState(null);
   const [selectedViewer, setSelectedViewer] = useState(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importResult, setImportResult] = useState(null);
   const [googleAccounts, setGoogleAccounts] = useState([]);
   const [connectingGoogle, setConnectingGoogle] = useState(false);
 
@@ -58,6 +62,8 @@ export default function ViewFilterDashboardPage() {
   const [syncingContacts, setSyncingContacts] = useState(false);
   const [contactSyncResult, setContactSyncResult] = useState(null);
   const [showGoogleSyncWarning, setShowGoogleSyncWarning] = useState(false);
+  const [whatsappDisconnected, setWhatsappDisconnected] = useState(false);
+  const [canStartNewCampaign, setCanStartNewCampaign] = useState(true);
   const [googleContactCounts, setGoogleContactCounts] = useState([]);
 
   // Handle Google OAuth return
@@ -97,6 +103,8 @@ export default function ViewFilterDashboardPage() {
       const statsData = statsRes.data?.stats || null;
       setCampaign(campaignData);
       setStats(statsData);
+      setWhatsappDisconnected(campaignRes.data?.whatsappDisconnected === true);
+      setCanStartNewCampaign(campaignRes.data?.canStartNewCampaign !== false);
       setLoadingProgress(40);
 
       if (campaignData) {
@@ -187,7 +195,11 @@ export default function ViewFilterDashboardPage() {
       setCampaign(data.campaign);
       await loadAll();
     } catch (err) {
-      setError(err.response?.data?.error || 'שגיאה בהפעלת המעקב');
+      if (err.response?.data?.whatsappDisconnected) {
+        setError('WhatsApp לא מחובר. יש לחבר את WhatsApp דרך דף בוט הסטטוסים לפני שמתחילים מעקב.');
+      } else {
+        setError(err.response?.data?.error || 'שגיאה בהפעלת המעקב');
+      }
     } finally {
       setStartingCampaign(false);
     }
@@ -385,6 +397,20 @@ export default function ViewFilterDashboardPage() {
           </div>
         )}
 
+        {/* WhatsApp Disconnected Warning */}
+        {whatsappDisconnected && campaign && (
+          <div className="p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-center gap-3 text-orange-700">
+            <Smartphone className="w-5 h-5 flex-shrink-0 text-orange-500" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">WhatsApp מנותק</p>
+              <p className="text-xs text-orange-600 mt-0.5">המעקב מושהה. יש להתחבר מחדש ל-WhatsApp כדי להמשיך לאגור נתונים. כל הנתונים שנאספו עד כה שמורים ומוצגים למטה.</p>
+            </div>
+            <button onClick={() => navigate('/status-bot')} className="px-3 py-1.5 text-xs bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 font-medium whitespace-nowrap">
+              התחבר מחדש
+            </button>
+          </div>
+        )}
+
         {/* Campaign Status Card */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="p-6">
@@ -421,7 +447,7 @@ export default function ViewFilterDashboardPage() {
                   <span>נותרו {daysRemaining} ימים</span>
                 </div>
               </div>
-            ) : (
+            ) : canStartNewCampaign ? (
               <div className="text-center py-6">
                 <Play className="w-10 h-10 mx-auto mb-3 text-gray-200" />
                 <p className="text-sm text-gray-500 mb-4">לחץ כדי להתחיל לעקוב אחרי הצופים שלך</p>
@@ -436,7 +462,91 @@ export default function ViewFilterDashboardPage() {
                   }
                 </button>
               </div>
+            ) : (
+              <div className="text-center py-6">
+                <Clock className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                <p className="text-sm text-gray-500">תקופת המעקב הסתיימה. הנתונים שנאספו מוצגים למטה.</p>
+                <p className="text-xs text-gray-400 mt-1">להתחלת מעקב חדש, פנה למנהל המערכת.</p>
+              </div>
             )}
+          </div>
+        </div>
+
+        {/* Cleanup CTAs — Google + Local + Keep-list import */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Google Cleanup (primary) */}
+          <div className="bg-gradient-to-l from-blue-50 via-indigo-50 to-white rounded-2xl border-2 border-blue-300 shadow-sm overflow-hidden">
+            <div className="p-5 flex items-center gap-4 flex-wrap">
+              <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Cloud className="w-6 h-6 text-blue-600" />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                  ניקוי אנשי קשר ב-Google
+                  <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full font-medium">חדש</span>
+                </h3>
+                <p className="text-sm text-gray-600 mt-0.5">
+                  סנן לפי תוויות + צפיות, מחק מהחשבון Google שלך — הסנכרון מתפשט לכל המכשירים.
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/view-filter/cleanup/google')}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors shadow-sm hover:shadow"
+              >
+                <Cloud className="w-4 h-4" /> פתח מסך Google
+              </button>
+            </div>
+          </div>
+
+          {/* Local DB Cleanup (secondary) */}
+          <div className="bg-gradient-to-l from-orange-50 via-amber-50 to-white rounded-2xl border border-orange-200 shadow-sm overflow-hidden">
+            <div className="p-5 flex items-center gap-4 flex-wrap">
+              <div className="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-6 h-6 text-orange-600" />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <h3 className="font-bold text-gray-900 text-base">ניקוי DB מקומי של המערכת</h3>
+                <p className="text-sm text-gray-600 mt-0.5">
+                  מנקה את אנשי הקשר ש-FlowBotomat אגר. לא נוגע בגוגל ולא בטלפון.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navigate('/view-filter/cleanup')}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-orange-500 text-white rounded-xl font-medium hover:bg-orange-600 transition-colors"
+                >
+                  פתח
+                </button>
+                <button
+                  onClick={() => navigate('/view-filter/cleanup/backups')}
+                  title="ניהול גיבויים ושחזור (DB מקומי)"
+                  className="flex items-center gap-2 px-3 py-2.5 bg-white border border-orange-200 text-orange-700 rounded-xl font-medium hover:bg-orange-50 transition-colors text-sm"
+                >
+                  גיבויים
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Keep-list import — mark contacts as "important, never delete" */}
+          <div className="bg-gradient-to-l from-yellow-50 via-amber-50 to-white rounded-2xl border border-yellow-300 shadow-sm overflow-hidden">
+            <div className="p-5 flex items-center gap-4 flex-wrap">
+              <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Star className="w-6 h-6 text-yellow-600" />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <h3 className="font-bold text-gray-900 text-base">רשימה שמורה — אנשים חשובים</h3>
+                <p className="text-sm text-gray-600 mt-0.5">
+                  העלה קובץ CSV / VCF / vCard — אנשי הקשר יסומנו כשמורים ולא יימחקו בניקוי.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-yellow-500 text-white rounded-xl font-medium hover:bg-yellow-600 transition-colors"
+              >
+                <Upload className="w-4 h-4" /> ייבוא קובץ
+              </button>
+            </div>
           </div>
         </div>
 
@@ -723,72 +833,9 @@ export default function ViewFilterDashboardPage() {
           </div>
         )}
 
-        {/* Google Sync */}
-        {campaign && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="font-bold text-gray-900 mb-1 flex items-center gap-2">
-              <Smartphone className="w-5 h-5 text-purple-500" />
-              סנכרון ל-Google Contacts
-            </h3>
-            <p className="text-sm text-gray-500 mb-4">סנכרן את כל הצופים כאנשי קשר ב-Google Contacts. תומך במספר חשבונות.</p>
-
-            {syncResult && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-sm text-green-700 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                {syncResult.message || `סנכרון הושלם — ${syncResult.synced} אנשי קשר`}
-              </div>
-            )}
-
-            {/* Connected accounts */}
-            {googleAccounts.length > 0 && (
-              <div className="mb-4 space-y-2">
-                <p className="text-xs font-medium text-gray-500 mb-2">חשבונות מחוברים:</p>
-                {googleAccounts.map((acc, i) => {
-                  const countInfo = googleContactCounts.find(c => c.slot === acc.slot);
-                  return (
-                    <div key={i} className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg text-sm">
-                      <div className="w-6 h-6 bg-white rounded-full border border-gray-200 flex items-center justify-center flex-shrink-0">
-                        <svg width="14" height="14" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-                      </div>
-                      <span className="text-gray-700 flex-1">{acc.account_email || `חשבון ${i + 1}`}</span>
-                      {acc.status === 'connected' && countInfo?.count != null && (
-                        <span className="text-xs text-gray-400">{countInfo.count.toLocaleString()} אנשי קשר</span>
-                      )}
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${acc.status === 'connected' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-500'}`}>
-                        {acc.status === 'connected' ? 'מחובר' : 'מנותק'}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={handleSync}
-                disabled={syncing || googleAccounts.filter(a => a.status === 'connected').length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-500 to-violet-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50"
-                title={googleAccounts.filter(a => a.status === 'connected').length === 0 ? 'יש לחבר חשבון Google תחילה' : ''}
-              >
-                {syncing
-                  ? <><RefreshCw className="w-4 h-4 animate-spin" /> מסנכרן...</>
-                  : <><Smartphone className="w-4 h-4" /> סנכרן עכשיו</>
-                }
-              </button>
-
-              <button
-                onClick={handleConnectGoogle}
-                disabled={connectingGoogle}
-                className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 text-sm"
-              >
-                {connectingGoogle
-                  ? <><RefreshCw className="w-4 h-4 animate-spin" /> מחבר...</>
-                  : <><Plus className="w-4 h-4" /> {googleAccounts.length > 0 ? 'הוסף חשבון' : 'חבר חשבון Google'}</>
-                }
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Google integration now lives inside the Google cleanup page.
+            We intentionally don't show sync/connect buttons on the dashboard anymore —
+            everything Google-related is managed at /view-filter/cleanup/google. */}
       </main>
 
       {/* Viewer Profile Modal */}
@@ -797,6 +844,20 @@ export default function ViewFilterDashboardPage() {
           viewer={selectedViewer}
           onClose={() => setSelectedViewer(null)}
         />
+      )}
+
+      {/* Import keep-list modal (from dashboard card) */}
+      <ImportKeepListModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImported={(r) => setImportResult(r)}
+      />
+      {importResult && (
+        <div className="fixed bottom-6 left-6 z-50 bg-green-50 border border-green-200 rounded-xl shadow-lg px-4 py-3 flex items-center gap-2 text-sm text-green-800" dir="rtl">
+          <CheckCircle className="w-5 h-5 text-green-600" />
+          <span>נוספו לרשימה השמורה: <strong>{(importResult.added || 0).toLocaleString()}</strong> אנשי קשר</span>
+          <button onClick={() => setImportResult(null)} className="mr-2 text-green-500 hover:text-green-700"><X className="w-4 h-4" /></button>
+        </div>
       )}
 
       {/* Google Sync Warning Modal */}

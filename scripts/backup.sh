@@ -4,7 +4,7 @@
 # Runs daily via cron to backup PostgreSQL database
 
 BACKUP_DIR="/backups"
-RETENTION_DAYS=7
+RETENTION_DAYS=30
 DATE=$(date +%Y-%m-%d_%H-%M-%S)
 BACKUP_FILE="flowbotomat_backup_${DATE}.sql"
 

@@ -688,11 +688,13 @@ async function startTransferJob(jobId) {
     const io = getIO();
     
     const calculateDelay = (min, max) => {
+      const effectiveMin = Math.max(5, min);
+      const effectiveMax = Math.max(effectiveMin, max);
       const variation = 0.1;
-      const baseDelay = Math.random() * (max - min) + min;
+      const baseDelay = Math.random() * (effectiveMax - effectiveMin) + effectiveMin;
       const minVariation = baseDelay * (1 - variation);
       const maxVariation = baseDelay * (1 + variation);
-      return Math.max(3, Math.floor(Math.random() * (maxVariation - minVariation) + minVariation));
+      return Math.max(5, Math.floor(Math.random() * (maxVariation - minVariation) + minVariation));
     };
     
     for (let i = 0; i < messages.length; i++) {
@@ -759,7 +761,7 @@ async function startTransferJob(jobId) {
       });
       
       if (i < messages.length - 1) {
-        const delay = calculateDelay(job.delay_min || 3, job.delay_max || 10);
+        const delay = calculateDelay(job.delay_min || 5, job.delay_max || 10);
         await new Promise(resolve => setTimeout(resolve, delay * 1000));
       }
     }

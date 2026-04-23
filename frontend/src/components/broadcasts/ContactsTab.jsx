@@ -70,11 +70,26 @@ export default function ContactsTab({ onRefresh }) {
   
   // Import modal
   const [showImportModal, setShowImportModal] = useState(false);
-  
+
   // WhatsApp import
   const [pullingWhatsApp, setPullingWhatsApp] = useState(false);
   const [pullResult, setPullResult] = useState(null);
   const [importingGroupId, setImportingGroupId] = useState(null);
+
+  // Group-members picker modal
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const [groupList, setGroupList] = useState([]);
+  const [loadingGroupList, setLoadingGroupList] = useState(false);
+  const [groupSearch, setGroupSearch] = useState('');
+  const [selectedGroups, setSelectedGroups] = useState([]);
+  const [importingGroups, setImportingGroups] = useState(false);
+  const [groupImportProgress, setGroupImportProgress] = useState(null);
+  // Tagging mode for imported members:
+  //   'group'  → auto-tag each imported batch with its group's name
+  //   'custom' → use a single custom tag name for all selected groups
+  //   'none'   → don't tag
+  const [tagMode, setTagMode] = useState('group');
+  const [customTagName, setCustomTagName] = useState('');
   
   const pageSize = 50;
 
@@ -391,6 +406,70 @@ export default function ContactsTab({ onRefresh }) {
     }
   };
 
+  // Open the group-members picker and fetch the WhatsApp group list fresh
+  const openGroupPicker = async () => {
+    setShowGroupPicker(true);
+    setGroupSearch('');
+    setSelectedGroups([]);
+    setGroupImportProgress(null);
+    setLoadingGroupList(true);
+    try {
+      const { data } = await api.get('/whatsapp/groups');
+      const groups = (data.groups || []).map(g => ({
+        id: g.id || g.JID,
+        name: g.name || g.Name || '(ללא שם)',
+        participants: g.participants_count || (Array.isArray(g.Participants) ? g.Participants.length : null),
+      }));
+      setGroupList(groups);
+    } catch (e) {
+      toast.error(e.response?.data?.error || 'שגיאה בטעינת רשימת קבוצות');
+      setShowGroupPicker(false);
+    } finally {
+      setLoadingGroupList(false);
+    }
+  };
+
+  // Bulk-import members from multiple selected groups
+  const handleImportSelectedGroups = async () => {
+    if (selectedGroups.length === 0) return;
+    setImportingGroups(true);
+    setGroupImportProgress({ done: 0, total: selectedGroups.length, imported: 0, tagged: 0, errors: 0 });
+    let totalImported = 0;
+    let totalTagged = 0;
+    let errors = 0;
+    try {
+      for (let i = 0; i < selectedGroups.length; i++) {
+        const gid = selectedGroups[i];
+        try {
+          // Send tagging preference per-group so the backend can auto-tag with the group's own name
+          const payload = { excludeAdmins: false };
+          if (tagMode === 'group') payload.tagWithGroupName = true;
+          else if (tagMode === 'custom' && customTagName.trim()) payload.tagName = customTagName.trim();
+
+          const { data } = await api.post(
+            `/whatsapp/groups/${encodeURIComponent(gid)}/participants/import`,
+            payload
+          );
+          totalImported += data.imported || 0;
+          totalTagged += data.tagged || 0;
+        } catch (e) {
+          errors++;
+          console.error(`[Import] group ${gid} failed:`, e.response?.data?.error || e.message);
+        }
+        setGroupImportProgress({ done: i + 1, total: selectedGroups.length, imported: totalImported, tagged: totalTagged, errors });
+      }
+      const tagMsg = totalTagged > 0 ? ` · ${totalTagged.toLocaleString()} תויגו` : '';
+      const errMsg = errors > 0 ? ` (${errors} קבוצות נכשלו)` : '';
+      toast.success(`הוספו ${totalImported.toLocaleString()} אנשי קשר${tagMsg}${errMsg}`);
+      loadContacts();
+      loadTags();
+      onRefresh?.();
+      setShowGroupPicker(false);
+    } finally {
+      setImportingGroups(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -412,6 +491,14 @@ export default function ContactsTab({ onRefresh }) {
               <Download className="w-4 h-4" />
             )}
             משיכה מוואטסאפ
+          </button>
+          <button
+            onClick={openGroupPicker}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-500 to-indigo-600 text-white rounded-xl hover:from-violet-600 hover:to-indigo-700 font-medium shadow-lg shadow-violet-500/25"
+            title="משיכת אנשי קשר מקבוצה"
+          >
+            <Users className="w-4 h-4" />
+            ייבוא מקבוצות
           </button>
           <button
             onClick={() => setShowImportModal(true)}
@@ -478,8 +565,8 @@ export default function ContactsTab({ onRefresh }) {
           <button
             onClick={() => { setContactTypeFilter('groups'); setCurrentPage(1); }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              contactTypeFilter === 'groups' 
-                ? 'bg-white text-orange-700 shadow-sm' 
+              contactTypeFilter === 'groups'
+                ? 'bg-white text-orange-700 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
@@ -489,10 +576,23 @@ export default function ContactsTab({ onRefresh }) {
             </span>
           </button>
           <button
+            onClick={() => { setContactTypeFilter('channels'); setCurrentPage(1); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              contactTypeFilter === 'channels'
+                ? 'bg-white text-orange-700 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <Radio className="w-4 h-4" />
+              ערוצים
+            </span>
+          </button>
+          <button
             onClick={() => { setContactTypeFilter('all'); setCurrentPage(1); }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              contactTypeFilter === 'all' 
-                ? 'bg-white text-orange-700 shadow-sm' 
+              contactTypeFilter === 'all'
+                ? 'bg-white text-orange-700 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
@@ -1163,6 +1263,183 @@ export default function ContactsTab({ onRefresh }) {
                 className="flex-1 px-4 py-2.5 bg-orange-600 text-white rounded-xl hover:bg-orange-700 font-medium disabled:opacity-50"
               >
                 הוסף תגית
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Group Picker Modal — import members from selected WhatsApp groups */}
+      {showGroupPicker && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => !importingGroups && setShowGroupPicker(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="bg-gradient-to-l from-violet-500 to-indigo-600 p-5 flex justify-between items-center text-white rounded-t-2xl">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-xl">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold">ייבוא אנשי קשר מקבוצות</h3>
+                  <p className="text-violet-100 text-xs">בחר קבוצה אחת או יותר — המשתתפים יתווספו לרשימת אנשי הקשר</p>
+                </div>
+              </div>
+              <button
+                onClick={() => !importingGroups && setShowGroupPicker(false)}
+                className="p-2 hover:bg-white/20 rounded-xl"
+                disabled={importingGroups}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 flex-1 overflow-y-auto space-y-3">
+              {loadingGroupList ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
+                </div>
+              ) : groupList.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  לא נמצאו קבוצות בחשבון הוואטסאפ שלך
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={groupSearch}
+                      onChange={(e) => setGroupSearch(e.target.value)}
+                      placeholder="חיפוש קבוצה..."
+                      className="w-full pr-10 pl-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">{groupList.length} קבוצות</span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setSelectedGroups(groupList.map(g => g.id))}
+                        className="text-violet-600 hover:underline text-xs"
+                      >
+                        בחר הכל
+                      </button>
+                      {selectedGroups.length > 0 && (
+                        <button
+                          onClick={() => setSelectedGroups([])}
+                          className="text-gray-500 hover:underline text-xs"
+                        >
+                          נקה ({selectedGroups.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border rounded-lg divide-y max-h-[360px] overflow-y-auto">
+                    {groupList
+                      .filter(g => !groupSearch || (g.name || '').toLowerCase().includes(groupSearch.toLowerCase()))
+                      .map(g => {
+                        const checked = selectedGroups.includes(g.id);
+                        return (
+                          <label
+                            key={g.id}
+                            className={`flex items-center gap-3 p-3 cursor-pointer transition ${checked ? 'bg-violet-50' : 'hover:bg-gray-50'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => setSelectedGroups(prev =>
+                                prev.includes(g.id) ? prev.filter(x => x !== g.id) : [...prev, g.id]
+                              )}
+                              className="w-4 h-4 accent-violet-600"
+                              disabled={importingGroups}
+                            />
+                            <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center">
+                              <Users className="w-4 h-4 text-violet-700" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm text-gray-900 truncate">{g.name}</div>
+                              {g.participants != null && (
+                                <div className="text-xs text-gray-500">{g.participants} משתתפים</div>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                  </div>
+                </>
+              )}
+
+              {/* Tagging mode */}
+              <div className="border rounded-lg p-3 bg-gray-50 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <Tag className="w-4 h-4 text-violet-600" />
+                  תיוג אוטומטי
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    { key: 'group', label: 'שם הקבוצה', desc: 'כל קבוצה → תגית בשמה' },
+                    { key: 'custom', label: 'תגית מותאמת', desc: 'תגית אחת לכל הקבוצות' },
+                    { key: 'none', label: 'בלי תיוג', desc: 'רק ייבוא' },
+                  ].map(opt => {
+                    const sel = tagMode === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setTagMode(opt.key)}
+                        className={`text-right p-2 rounded-lg border-2 transition ${sel ? 'border-violet-500 bg-violet-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+                      >
+                        <div className={`text-sm font-medium ${sel ? 'text-violet-900' : 'text-gray-900'}`}>{opt.label}</div>
+                        <div className="text-[11px] text-gray-500 mt-0.5">{opt.desc}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {tagMode === 'custom' && (
+                  <input
+                    type="text"
+                    value={customTagName}
+                    onChange={(e) => setCustomTagName(e.target.value)}
+                    placeholder="שם התגית (לדוגמה: 'לקוחות אפריל 2026')"
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                )}
+                {tagMode === 'group' && (
+                  <p className="text-[11px] text-gray-600">
+                    לאחר הייבוא תוכל לסנן ברשימת אנשי הקשר לפי שם הקבוצה כדי למצוא את חבריה
+                  </p>
+                )}
+              </div>
+
+              {groupImportProgress && (
+                <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-2 text-violet-800">
+                    {importingGroups && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>
+                      {groupImportProgress.done}/{groupImportProgress.total} קבוצות — נוספו {groupImportProgress.imported.toLocaleString()} אנשי קשר
+                      {groupImportProgress.tagged > 0 && ` · ${groupImportProgress.tagged.toLocaleString()} תויגו`}
+                      {groupImportProgress.errors > 0 && ` (${groupImportProgress.errors} נכשלו)`}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t bg-gray-50 flex justify-end gap-2 rounded-b-2xl">
+              <button
+                onClick={() => setShowGroupPicker(false)}
+                disabled={importingGroups}
+                className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-white disabled:opacity-50"
+              >
+                ביטול
+              </button>
+              <button
+                onClick={handleImportSelectedGroups}
+                disabled={importingGroups || selectedGroups.length === 0}
+                className="px-5 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 font-medium flex items-center gap-2"
+              >
+                {importingGroups ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                ייבא {selectedGroups.length > 0 ? `(${selectedGroups.length})` : ''}
               </button>
             </div>
           </div>

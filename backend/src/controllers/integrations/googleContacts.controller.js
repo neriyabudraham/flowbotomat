@@ -1,4 +1,27 @@
 const googleContacts = require('../../services/googleContacts.service');
+const db = require('../../config/database');
+
+// Fire-and-forget audit write. Never throws — never breaks the OAuth flow.
+async function auditGoogleOAuth({ userId, eventType, fromPath, errorCode, errorDescription, accountEmail, metadata }) {
+  try {
+    await db.query(
+      `INSERT INTO google_oauth_audit
+        (user_id, event_type, from_path, error_code, error_description, account_email, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        userId || null,
+        eventType,
+        fromPath || null,
+        errorCode ? String(errorCode).slice(0, 100) : null,
+        errorDescription || null,
+        accountEmail || null,
+        metadata ? JSON.stringify(metadata) : null,
+      ]
+    );
+  } catch (e) {
+    console.warn('[GoogleContacts] Audit write failed (non-fatal):', e.message);
+  }
+}
 
 /**
  * GET /api/google-contacts/auth-url
@@ -8,9 +31,12 @@ const getAuthUrl = async (req, res) => {
   try {
     const userId = req.user.userId;
     const url = googleContacts.getAuthUrl(userId);
+    console.log(`[GoogleContacts] Auth URL requested by user ${userId} (email: ${req.user.email || 'n/a'})`);
+    auditGoogleOAuth({ userId, eventType: 'auth_url_requested' });
     res.json({ url });
   } catch (error) {
-    console.error('[GoogleContacts] Auth URL error:', error.message);
+    console.error('[GoogleContacts] Auth URL error for user', req.user?.userId, ':', error.message);
+    auditGoogleOAuth({ userId: req.user?.userId, eventType: 'auth_url_error', errorDescription: error.message });
     res.status(500).json({ error: 'Failed to generate auth URL' });
   }
 };
@@ -21,14 +47,33 @@ const getAuthUrl = async (req, res) => {
  */
 const handleCallback = async (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || 'https://botomat.co.il';
-  
+
+  // Log EVERY callback hit with the full query context so we can diagnose
+  // user-reported errors even when they never complete the flow.
+  const { code, state, error: googleError, error_description } = req.query;
+  console.log(`[GoogleContacts] Callback hit — code=${code ? code.slice(0,20) + '...' : 'MISSING'} state_len=${state?.length || 0} error=${googleError || 'none'} desc=${error_description || ''}`);
+
+  // Google returned an explicit error (access_denied, redirect_uri_mismatch, etc.)
+  if (googleError) {
+    console.error(`[GoogleContacts] Google OAuth error: ${googleError} - ${error_description || 'no description'}`);
+    let userIdFromState = null;
+    try { userIdFromState = state ? JSON.parse(state).userId : null; } catch {}
+    auditGoogleOAuth({
+      userId: userIdFromState,
+      eventType: 'callback_google_error',
+      errorCode: googleError,
+      errorDescription: error_description,
+      metadata: { state_present: !!state },
+    });
+    return res.redirect(`${frontendUrl}/settings?tab=integrations&error=${encodeURIComponent(googleError)}&error_description=${encodeURIComponent(error_description || '')}`);
+  }
+
   try {
-    const { code, state } = req.query;
-    
     if (!code) {
+      console.error(`[GoogleContacts] Callback missing code`);
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=no_code`);
     }
-    
+
     let userId, from, slot = 0;
     if (state) {
       try {
@@ -36,26 +81,50 @@ const handleCallback = async (req, res) => {
         userId = stateData.userId;
         from = stateData.from;
         slot = stateData.slot ?? 0;
-      } catch (e) {}
+      } catch (e) {
+        console.error(`[GoogleContacts] Invalid state JSON:`, e.message, 'raw state:', state);
+      }
     }
 
     if (!userId) {
+      console.error(`[GoogleContacts] Callback without userId in state`);
       return res.redirect(`${frontendUrl}/settings?tab=integrations&error=invalid_state`);
     }
 
+    console.log(`[GoogleContacts] Exchanging code for user ${userId} slot ${slot} from=${from}`);
     const result = await googleContacts.handleCallback(code, userId, slot);
-    console.log(`[GoogleContacts] Connected for user ${userId} slot ${slot}: ${result.email}`);
+    console.log(`[GoogleContacts] ✅ Connected for user ${userId} slot ${slot}: ${result.email}`);
+    auditGoogleOAuth({ userId, eventType: 'callback_success', fromPath: from, accountEmail: result.email });
 
     if (from === 'view-filter') {
-      return res.redirect(`${frontendUrl}/view-filter?google=connected`);
+      return res.redirect(`${frontendUrl}/view-filter/cleanup/google?google=connected`);
     }
-    if (from === 'onboarding') {
+    if (from === 'onboarding' || from === 'status-bot') {
       return res.redirect(`${frontendUrl}/connect/${userId}/integrations?google_contacts=connected`);
+    }
+    if (from === 'save-contact-bot' || from === '/save-contact-bot') {
+      return res.redirect(`${frontendUrl}/save-contact-bot/dashboard?google_contacts=connected`);
     }
     res.redirect(`${frontendUrl}/settings?tab=integrations&google_contacts=connected`);
   } catch (error) {
     console.error('[GoogleContacts] Callback error:', error.message);
-    res.redirect(`${frontendUrl}/settings?tab=integrations&error=google_contacts_failed`);
+    if (error.response) {
+      console.error('[GoogleContacts] OAuth response status:', error.response.status);
+      console.error('[GoogleContacts] OAuth response data:', JSON.stringify(error.response.data));
+    }
+    console.error('[GoogleContacts] Callback error stack:', error.stack);
+    let userIdFromState = null;
+    try { userIdFromState = state ? JSON.parse(state).userId : null; } catch {}
+    auditGoogleOAuth({
+      userId: userIdFromState,
+      eventType: 'callback_exchange_error',
+      errorDescription: error.message?.slice(0, 500),
+      metadata: {
+        response_status: error.response?.status,
+        response_data: error.response?.data,
+      },
+    });
+    res.redirect(`${frontendUrl}/settings?tab=integrations&error=google_contacts_failed&reason=${encodeURIComponent(error.message?.slice(0, 120) || 'unknown')}`);
   }
 };
 
@@ -380,6 +449,56 @@ const getContactsInLabel = async (req, res) => {
 module.exports = {
   getAuthUrl,
   handleCallback,
+  listAccounts: async (req, res) => {
+    try {
+      const slots = await googleContacts.listConnectedSlots(req.user.id);
+      res.json({ accounts: slots, count: slots.length });
+    } catch (e) {
+      console.error('[GoogleContacts] listAccounts error:', e);
+      res.status(500).json({ error: 'שגיאה בטעינת חשבונות' });
+    }
+  },
+  setPrimary: async (req, res) => {
+    try {
+      const slot = Number(req.params.slot);
+      if (!Number.isFinite(slot)) return res.status(400).json({ error: 'slot לא תקין' });
+      await googleContacts.setPrimarySlot(req.user.id, slot);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[GoogleContacts] setPrimary error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  },
+  disconnectSlot: async (req, res) => {
+    try {
+      const slot = Number(req.params.slot);
+      if (!Number.isFinite(slot)) return res.status(400).json({ error: 'slot לא תקין' });
+      await googleContacts.disconnectSlot(req.user.id, slot);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[GoogleContacts] disconnectSlot error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  },
+  getNextAuthUrl: async (req, res) => {
+    try {
+      const requested = Number(req.query.slot);
+      let slot;
+      if (Number.isFinite(requested) && requested >= 0) {
+        slot = requested;
+      } else {
+        const slots = await googleContacts.listConnectedSlots(req.user.id);
+        const used = new Set(slots.map((s) => s.slot));
+        slot = 0;
+        while (used.has(slot)) slot += 1;
+      }
+      const url = googleContacts.getAuthUrl(req.user.id, req.query.from || null, slot);
+      res.json({ url, slot });
+    } catch (e) {
+      console.error('[GoogleContacts] getNextAuthUrl error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  },
   getStatus,
   disconnect,
   searchContacts,

@@ -195,11 +195,75 @@ const getGoogleContactsUrl = async (req, res) => {
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    const url = googleContacts.getAuthUrl(userId, 'onboarding');
-    res.json({ url });
+    // If a specific slot is requested use it; otherwise pick the next free slot.
+    const requested = Number(req.query.slot);
+    let slot;
+    if (Number.isFinite(requested) && requested >= 0) {
+      slot = requested;
+    } else {
+      const slots = await googleContacts.listConnectedSlots(userId);
+      const used = new Set(slots.map((s) => s.slot));
+      slot = 0;
+      while (used.has(slot)) slot += 1;
+    }
+    const url = googleContacts.getAuthUrl(userId, 'onboarding', slot);
+    res.json({ url, slot });
   } catch (error) {
     console.error('[Onboarding] Google contacts URL error:', error.message);
     res.status(500).json({ error: 'Failed to generate auth URL' });
+  }
+};
+
+/**
+ * GET /api/onboarding/:userId/google-contacts/accounts
+ * Public — list all Google Contacts accounts connected for this userId.
+ */
+const listGoogleContactsAccounts = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const userResult = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    const accounts = await googleContacts.listConnectedSlots(userId);
+    res.json({ accounts, count: accounts.length });
+  } catch (error) {
+    console.error('[Onboarding] listGoogleContactsAccounts error:', error.message);
+    res.status(500).json({ error: 'Failed to load accounts' });
+  }
+};
+
+/**
+ * POST /api/onboarding/:userId/google-contacts/accounts/:slot/primary
+ */
+const setGoogleContactsPrimary = async (req, res) => {
+  try {
+    const { userId, slot } = req.params;
+    const userResult = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    const slotNum = Number(slot);
+    if (!Number.isFinite(slotNum)) return res.status(400).json({ error: 'invalid slot' });
+    await googleContacts.setPrimarySlot(userId, slotNum);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[Onboarding] setGoogleContactsPrimary error:', error.message);
+    res.status(500).json({ error: 'Failed to set primary' });
+  }
+};
+
+/**
+ * DELETE /api/onboarding/:userId/google-contacts/accounts/:slot
+ */
+const disconnectGoogleContactsSlot = async (req, res) => {
+  try {
+    const { userId, slot } = req.params;
+    const userResult = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    if (userResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+    const slotNum = Number(slot);
+    if (!Number.isFinite(slotNum)) return res.status(400).json({ error: 'invalid slot' });
+    await googleContacts.disconnectSlot(userId, slotNum);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[Onboarding] disconnectGoogleContactsSlot error:', error.message);
+    res.status(500).json({ error: 'Failed to disconnect' });
   }
 };
 
@@ -287,4 +351,13 @@ const requestWhatsappCode = async (req, res) => {
   }
 };
 
-module.exports = { getStatus, getWhatsappQR, getGoogleContactsUrl, getGoogleSheetsUrl, requestWhatsappCode };
+module.exports = {
+  getStatus,
+  getWhatsappQR,
+  getGoogleContactsUrl,
+  getGoogleSheetsUrl,
+  requestWhatsappCode,
+  listGoogleContactsAccounts,
+  setGoogleContactsPrimary,
+  disconnectGoogleContactsSlot,
+};

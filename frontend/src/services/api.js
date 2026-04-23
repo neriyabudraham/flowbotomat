@@ -35,6 +35,34 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Backoff retry for transient failures during deploys (502/503/504/network).
+// Up to 4 retries with exponential delay (1s → 2s → 4s → 8s).
+// GET / HEAD are always retried; mutating verbs are retried only when explicitly safe
+// (config._retryable === true, or status is a clear gateway error like 502).
+const RETRYABLE_STATUSES = [502, 503, 504];
+const MAX_RETRIES = 4;
+
+async function maybeRetry(error) {
+  const cfg = error.config || {};
+  const status = error.response?.status;
+  const isNetwork = !error.response && (error.code === 'ECONNABORTED' || error.message?.includes('Network Error'));
+  const isGatewayDown = status && RETRYABLE_STATUSES.includes(status);
+
+  if (!isNetwork && !isGatewayDown) return null;
+
+  const method = (cfg.method || 'get').toLowerCase();
+  const safeMethod = method === 'get' || method === 'head';
+  // Mutations: retry only on clear "gateway down" signals (502/503/504), NOT generic 5xx
+  if (!safeMethod && !isGatewayDown) return null;
+
+  cfg.__retryCount = (cfg.__retryCount || 0) + 1;
+  if (cfg.__retryCount > MAX_RETRIES) return null;
+
+  const delay = Math.min(1000 * 2 ** (cfg.__retryCount - 1), 8000);
+  await new Promise(r => setTimeout(r, delay));
+  return api(cfg);
+}
+
 // Handle errors
 api.interceptors.response.use(
   (response) => {
@@ -52,7 +80,15 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Handle 503 - maintenance/backend down
+    // Auto-retry transient failures (gateway down during deploy, network blips)
+    const retried = await maybeRetry(error);
+    if (retried) {
+      consecutiveNetworkErrors = 0;
+      notifyMaintenance(false);
+      return retried;
+    }
+
+    // Handle 503 - maintenance/backend down (after retry exhausted)
     if (error.response?.status === 503) {
       const message = error.response?.data?.error || 'המערכת בתחזוקה';
       notifyMaintenance(true, message);
@@ -60,7 +96,6 @@ api.interceptors.response.use(
     }
 
     // Handle network errors (backend completely down)
-    // Require multiple consecutive failures to avoid false positives from transient errors
     if (!error.response && (error.code === 'ECONNABORTED' || error.message?.includes('Network Error'))) {
       consecutiveNetworkErrors++;
       if (consecutiveNetworkErrors >= NETWORK_ERROR_THRESHOLD) {
@@ -69,7 +104,6 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Any successful response (even 4xx) resets the error counter
     consecutiveNetworkErrors = 0;
     return Promise.reject(error);
   }

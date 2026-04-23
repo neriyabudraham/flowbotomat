@@ -3,7 +3,7 @@ const router = express.Router();
 const authMiddleware = require('../middlewares/auth.middleware');
 const { createManaged, createExternal, checkExisting } = require('../controllers/whatsapp/connect.controller');
 const { getStatus, getQR, requestCode, getUserStatuses } = require('../controllers/whatsapp/status.controller');
-const { disconnect, deleteConnection } = require('../controllers/whatsapp/disconnect.controller');
+const { disconnect, deleteConnection, logoutSessionOnly } = require('../controllers/whatsapp/disconnect.controller');
 const { getGroups } = require('../controllers/whatsapp/groups.controller');
 const { getChannels } = require('../controllers/whatsapp/channels.controller');
 const { getLabels } = require('../controllers/whatsapp/labels.controller');
@@ -65,5 +65,8 @@ router.delete('/disconnect', disconnect);
 
 // Delete connection completely (logout + delete WAHA session)
 router.delete('/delete', deleteConnection);
+
+// Logout WAHA session only (so user can connect a different phone)
+router.delete('/logout-session', logoutSessionOnly);
 
 module.exports = router;

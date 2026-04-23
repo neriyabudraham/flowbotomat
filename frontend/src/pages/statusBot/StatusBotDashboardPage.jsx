@@ -6,7 +6,8 @@ import {
   Video, Mic, Type, Palette, Send, AlertCircle, X, Loader,
   QrCode, Wifi, WifiOff, Phone, ChevronDown, ChevronUp, List, ChevronLeft, ChevronRight,
   Loader2, Shield, Zap, HelpCircle, Mail, Home, Settings, Crown,
-  CheckCircle, BarChart, Play, Pause, Volume2, History, Calendar, UserPlus
+  CheckCircle, BarChart, Play, Pause, Volume2, History, Calendar, UserPlus,
+  ToggleLeft, ToggleRight
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import useWhatsappStore from '../../store/whatsappStore';
@@ -15,6 +16,7 @@ import NotificationsDropdown from '../../components/notifications/NotificationsD
 import AccountSwitcher from '../../components/AccountSwitcher';
 import api from '../../services/api';
 import { ToastProvider, useToast } from '../../components/ui/Toast';
+import ImportedContactsModal from '../../components/statusBot/ImportedContactsModal';
 import io from 'socket.io-client';
 
 const BOT_NUMBER = '+972 53-923-2960';
@@ -180,6 +182,10 @@ function StatusBotDashboardContent() {
   // Contacts cache sync
   const [refreshingContacts, setRefreshingContacts] = useState(false);
   const [contactsSyncResult, setContactsSyncResult] = useState(null);
+  const [importedModalOpen, setImportedModalOpen] = useState(false);
+  const [importedTotal, setImportedTotal] = useState(null);
+  // Per-authorized-sender imported contacts modal (null = closed, or {id, label})
+  const [senderImportedModal, setSenderImportedModal] = useState(null);
   
   // Add number modal
   const [showAddNumber, setShowAddNumber] = useState(false);
@@ -310,6 +316,16 @@ function StatusBotDashboardContent() {
   }, [step]);
 
   // Poll in-progress statuses every 5 seconds when there are processing items
+  // Fetch imported-contacts total when entering contacts format
+  useEffect(() => {
+    if (step !== 'dashboard') return;
+    if (connection?.status_send_format === 'contacts') {
+      loadImportedTotal();
+    } else {
+      setImportedTotal(null);
+    }
+  }, [step, connection?.status_send_format, importedModalOpen]);
+
   useEffect(() => {
     if (step !== 'dashboard') return;
     const hasProcessing = inProgressStatuses.some(s => s.queue_status === 'processing');
@@ -415,6 +431,13 @@ function StatusBotDashboardContent() {
     } finally {
       setRefreshingContacts(false);
     }
+  };
+
+  const loadImportedTotal = async () => {
+    try {
+      const { data } = await api.get('/status-bot/imported-contacts');
+      setImportedTotal({ total: data.total, enabled: data.use_imported_contacts !== false });
+    } catch {}
   };
 
   const DEFAULT_COLORS = [
@@ -911,6 +934,22 @@ function StatusBotDashboardContent() {
       },
       { confirmText: 'הסר', danger: true }
     );
+  };
+
+  const handleToggleCanImport = async (numberId, current) => {
+    const next = !current;
+    // optimistic update so the toggle feels instant
+    setAuthorizedNumbers(prev => prev.map(n => n.id === numberId ? { ...n, can_import_contacts: next } : n));
+    try {
+      await api.patch(`/status-bot/authorized-numbers/${numberId}/can-import`, {
+        can_import_contacts: next,
+      });
+      toast.success(next ? 'הרשאה הופעלה — המשתמש יכול להוסיף אנשי קשר' : 'הרשאה הושבתה');
+    } catch (err) {
+      // revert
+      setAuthorizedNumbers(prev => prev.map(n => n.id === numberId ? { ...n, can_import_contacts: current } : n));
+      toast.error(err.response?.data?.error || 'שגיאה בעדכון הרשאה');
+    }
   };
 
   const handleDeleteStatus = async (statusId) => {
@@ -1589,28 +1628,64 @@ function StatusBotDashboardContent() {
 
           {/* Contacts sync block — visible only in contacts format */}
           {connection?.status_send_format === 'contacts' && (
-            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6 flex items-center justify-between">
-              <div>
-                <p className="font-medium text-purple-800">אנשי קשר מסונכרנים</p>
-                <p className="text-sm text-purple-600">
-                  {contactsSyncResult
-                    ? `✓ ${contactsSyncResult.count.toLocaleString()} אנשי קשר — עודכן זה עתה`
-                    : connection.contacts_cache_count
-                      ? `${connection.contacts_cache_count.toLocaleString()} אנשי קשר${connection.contacts_cache_synced_at ? ` — עודכן ${new Date(connection.contacts_cache_synced_at).toLocaleString('he-IL')}` : ''}`
-                      : 'לא סונכרן עדיין'
-                  }
-                </p>
+            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <p className="font-medium text-purple-800">אנשי קשר מסונכרנים מווצאפ</p>
+                  <p className="text-sm text-purple-600">
+                    {contactsSyncResult
+                      ? `✓ ${contactsSyncResult.count.toLocaleString()} אנשי קשר — עודכן זה עתה`
+                      : connection.contacts_cache_count
+                        ? `${connection.contacts_cache_count.toLocaleString()} אנשי קשר${connection.contacts_cache_synced_at ? ` — עודכן ${new Date(connection.contacts_cache_synced_at).toLocaleString('he-IL')}` : ''}`
+                        : 'לא סונכרן עדיין'
+                    }
+                  </p>
+                </div>
+                <button
+                  onClick={handleRefreshContacts}
+                  disabled={refreshingContacts}
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm"
+                >
+                  {refreshingContacts ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  רענן רשימה
+                </button>
               </div>
-              <button
-                onClick={handleRefreshContacts}
-                disabled={refreshingContacts}
-                className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm"
-              >
-                {refreshingContacts ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                רענן רשימה
-              </button>
+
+              <div className="flex items-center justify-between flex-wrap gap-2 border-t border-purple-200 pt-3">
+                <div>
+                  <p className="font-medium text-purple-800 flex items-center gap-2">
+                    <UserPlus className="w-4 h-4" />
+                    אנשי קשר מיובאים ידנית
+                  </p>
+                  <p className="text-sm text-purple-600">
+                    {importedTotal
+                      ? `${importedTotal.total.toLocaleString()} אנשי קשר ברשימה${importedTotal.enabled ? ' — בשימוש פעיל' : ' — מושבת'}`
+                      : 'העלאת רשימה מ-CSV / VCF / טקסט ידני'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setImportedModalOpen(true)}
+                  className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"
+                >
+                  <Upload className="w-4 h-4" />
+                  ניהול רשימה
+                </button>
+              </div>
             </div>
           )}
+
+          <ImportedContactsModal
+            isOpen={importedModalOpen}
+            onClose={() => setImportedModalOpen(false)}
+          />
+
+          {/* Per-authorized-sender imported contacts modal */}
+          <ImportedContactsModal
+            isOpen={!!senderImportedModal}
+            onClose={() => { setSenderImportedModal(null); loadDashboardData(); }}
+            authorizedNumberId={senderImportedModal?.id || null}
+            senderLabel={senderImportedModal?.label || null}
+          />
 
           {/* Tabs */}
           <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
@@ -1641,11 +1716,17 @@ function StatusBotDashboardContent() {
               icon={Clock}
               label={`מתוזמנים ${scheduled.length > 0 ? `(${scheduled.length})` : ''}`}
             />
-            <TabButton 
-              active={activeTab === 'numbers'} 
+            <TabButton
+              active={activeTab === 'numbers'}
               onClick={() => setActiveTab('numbers')}
               icon={Users}
               label={`מספרים מורשים ${authorizedNumbers.length > 0 ? `(${authorizedNumbers.length})` : ''}`}
+            />
+            <TabButton
+              active={activeTab === 'settings'}
+              onClick={() => setActiveTab('settings')}
+              icon={Settings}
+              label="הגדרות"
             />
             {(failedStatuses.length > 0 || inProgressStatuses.length > 0) && (
               <TabButton 
@@ -2110,50 +2191,6 @@ function StatusBotDashboardContent() {
                     </div>
                   )}
                   
-                  {/* WhatsApp Bot Settings */}
-                  <div className="mt-6 pt-6 border-t border-gray-100">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Settings className="w-4 h-4 text-gray-500" />
-                      <h4 className="text-sm font-medium text-gray-700">הגדרות העלאה דרך וואטסאפ</h4>
-                    </div>
-                    
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">כיתוב בסרטונים מחולקים</p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {splitVideoCaptionMode === 'all' 
-                              ? 'הכיתוב יופיע בכל חלקי הסרטון' 
-                              : 'הכיתוב יופיע רק בחלק הראשון'}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => updateCaptionMode('first')}
-                            disabled={savingCaptionMode}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                              splitVideoCaptionMode === 'first'
-                                ? 'bg-green-100 text-green-700 ring-2 ring-green-500'
-                                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-                            }`}
-                          >
-                            רק ראשון
-                          </button>
-                          <button
-                            onClick={() => updateCaptionMode('all')}
-                            disabled={savingCaptionMode}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                              splitVideoCaptionMode === 'all'
-                                ? 'bg-green-100 text-green-700 ring-2 ring-green-500'
-                                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-                            }`}
-                          >
-                            כל החלקים
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </>
               )}
             </div>
@@ -2482,25 +2519,53 @@ function StatusBotDashboardContent() {
               ) : (
                 <div className="space-y-2">
                   {authorizedNumbers.map(num => (
-                    <div 
+                    <div
                       key={num.id}
-                      className="flex items-center justify-between p-3 bg-gray-50 rounded-xl"
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 bg-gray-50 rounded-xl"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
                           <Phone className="w-5 h-5 text-green-600" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <ClickablePhone phone={num.phone_number} className="font-medium text-gray-800" />
-                          {num.name && <p className="text-sm text-gray-500">{num.name}</p>}
+                          {num.name && <p className="text-sm text-gray-500 truncate">{num.name}</p>}
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleRemoveNumber(num.id)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          onClick={() => handleToggleCanImport(num.id, num.can_import_contacts === true)}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition border ${
+                            num.can_import_contacts
+                              ? 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-100'
+                          }`}
+                          title="הרשאה להוסיף אנשי קשר אישיים שיקבלו את הסטטוסים שלו"
+                        >
+                          {num.can_import_contacts ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                          {num.can_import_contacts ? 'מותר להוסיף אנשי קשר' : 'לא מורשה להוסיף'}
+                        </button>
+                        {num.can_import_contacts && (
+                          <button
+                            onClick={() => setSenderImportedModal({ id: num.id, label: num.name || num.phone_number })}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition"
+                          >
+                            <UserPlus className="w-4 h-4" />
+                            ניהול אנשי קשר
+                            {num.imported_contacts_count > 0 && (
+                              <span className="bg-indigo-100 text-indigo-700 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                                {num.imported_contacts_count.toLocaleString()}
+                              </span>
+                            )}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleRemoveNumber(num.id)}
+                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2569,8 +2634,60 @@ function StatusBotDashboardContent() {
             </div>
           )}
 
+          {activeTab === 'settings' && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-6">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 mb-1">הגדרות</h3>
+                <p className="text-sm text-gray-500">הגדרות כלליות לבוט העלאת הסטטוסים</p>
+              </div>
+
+              {/* Video Caption Setting */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Video className="w-4 h-4 text-gray-500" />
+                  <h4 className="text-sm font-medium text-gray-700">כיתוב בסרטונים מחולקים</h4>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">
+                        {splitVideoCaptionMode === 'all'
+                          ? 'הכיתוב יופיע בכל חלקי הסרטון'
+                          : 'הכיתוב יופיע רק בחלק הראשון'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => updateCaptionMode('first')}
+                        disabled={savingCaptionMode}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          splitVideoCaptionMode === 'first'
+                            ? 'bg-green-100 text-green-700 ring-2 ring-green-500'
+                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                        }`}
+                      >
+                        רק ראשון
+                      </button>
+                      <button
+                        onClick={() => updateCaptionMode('all')}
+                        disabled={savingCaptionMode}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          splitVideoCaptionMode === 'all'
+                            ? 'bg-green-100 text-green-700 ring-2 ring-green-500'
+                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                        }`}
+                      >
+                        כל החלקים
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'failed' && (
-            <FailedStatusesTab 
+            <FailedStatusesTab
               failedStatuses={failedStatuses}
               setFailedStatuses={setFailedStatuses}
               inProgressStatuses={inProgressStatuses}
@@ -4620,3 +4737,4 @@ function FailedStatusesTab({ failedStatuses, setFailedStatuses, toast, loadDashb
     </div>
   );
 }
+

@@ -7,7 +7,7 @@ import {
   Sparkles, ArrowRight, BarChart3, Calendar, Phone, Star,
   Target, Rocket, Gift, AlertCircle, X, ExternalLink, Lightbulb,
   Gauge, HardDrive, Code, Forward, Send, Upload, HelpCircle, Eye,
-  Mail, Loader2
+  Mail, Loader2, UserPlus
 } from 'lucide-react';
 
 // Icon mapping for community links
@@ -638,7 +638,6 @@ export default function DashboardPage() {
               title="הודעות תפוצה"
               description="שליחה המונית"
               gradient="from-orange-500 to-red-600"
-              badge="חדש"
             />
             <QuickActionCard
               to="/status-bot/dashboard"
@@ -647,6 +646,15 @@ export default function DashboardPage() {
               description="סטטוסים אוטומטיים"
               gradient="from-green-500 to-emerald-600"
               badge="פרימיום"
+              badgeColor="teal"
+            />
+            <QuickActionCard
+              to="/save-contact-bot"
+              icon={UserPlus}
+              title="שמירת איש קשר"
+              description="הוספה של אנשי קשר לסטטוס"
+              gradient="from-teal-500 to-emerald-600"
+              badge="חדש"
               badgeColor="teal"
             />
             <QuickActionCard

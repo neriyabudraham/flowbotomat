@@ -84,6 +84,34 @@ async function getCampaign(req, res) {
       campaign.status = 'completed';
     }
 
+    // Check WhatsApp connection status
+    let whatsappConnected = false;
+    let whatsappDisconnected = false;
+    const connResult = await db.query(
+      `SELECT connection_status FROM status_bot_connections WHERE user_id = $1 ORDER BY is_active DESC, created_at DESC LIMIT 1`,
+      [userId]
+    );
+    if (connResult.rows.length > 0) {
+      whatsappConnected = connResult.rows[0].connection_status === 'connected';
+      whatsappDisconnected = connResult.rows[0].connection_status === 'disconnected';
+    } else {
+      // No status_bot_connections record - check whatsapp_connections
+      const wcResult = await db.query(
+        `SELECT status FROM whatsapp_connections WHERE user_id = $1 LIMIT 1`,
+        [userId]
+      );
+      whatsappConnected = wcResult.rows[0]?.status === 'connected';
+      whatsappDisconnected = !whatsappConnected;
+    }
+
+    // Check if user is allowed to start new campaigns
+    const allowCheck = await db.query(`
+      SELECT uss.allow_new_campaign FROM user_service_subscriptions uss
+      JOIN additional_services ads ON ads.id = uss.service_id
+      WHERE uss.user_id = $1 AND ads.slug = 'view-filter-bot'
+    `, [userId]);
+    const canStartNewCampaign = allowCheck.rows[0]?.allow_new_campaign !== false;
+
     return res.json({
       hasCampaign: true,
       campaign: {
@@ -92,7 +120,10 @@ async function getCampaign(req, res) {
         daysTotal: 90,
         daysElapsed: 90 - daysRemaining,
         progressPercent: Math.round(((90 - daysRemaining) / 90) * 100),
-      }
+      },
+      whatsappConnected,
+      whatsappDisconnected,
+      canStartNewCampaign,
     });
   } catch (err) {
     console.error('[ViewFilter] getCampaign error:', err);
@@ -108,8 +139,33 @@ async function startCampaign(req, res) {
 
     const { trackSince } = req.body; // null | 'all_time'
 
+    // Check if admin has blocked new campaigns for this user
+    const allowCheck = await db.query(`
+      SELECT uss.allow_new_campaign FROM user_service_subscriptions uss
+      JOIN additional_services ads ON ads.id = uss.service_id
+      WHERE uss.user_id = $1 AND ads.slug = 'view-filter-bot'
+    `, [userId]);
+    if (allowCheck.rows[0]?.allow_new_campaign === false) {
+      return res.status(403).json({ error: 'לא ניתן להתחיל מעקב חדש. פנה למנהל המערכת.', campaignBlocked: true });
+    }
+
     // connection_id is optional — view filter works independently of status bot
     const connectionId = await getConnectionId(userId);
+
+    // Check WhatsApp connection status - warn if not connected
+    let whatsappConnected = false;
+    if (connectionId) {
+      const connCheck = await db.query('SELECT connection_status FROM status_bot_connections WHERE id = $1', [connectionId]);
+      whatsappConnected = connCheck.rows[0]?.connection_status === 'connected';
+    }
+    if (!whatsappConnected) {
+      // Also check whatsapp_connections
+      const wcCheck = await db.query('SELECT status FROM whatsapp_connections WHERE user_id = $1 LIMIT 1', [userId]);
+      whatsappConnected = wcCheck.rows[0]?.status === 'connected';
+    }
+    if (!whatsappConnected) {
+      return res.status(400).json({ error: 'WhatsApp לא מחובר. יש לחבר את WhatsApp לפני שמתחילים מעקב.', whatsappDisconnected: true });
+    }
 
     const now = new Date();
     let startedAt = now;

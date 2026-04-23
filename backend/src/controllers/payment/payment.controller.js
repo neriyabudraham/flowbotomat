@@ -191,7 +191,11 @@ async function savePaymentMethod(req, res) {
       [userId]
     );
 
-    const newCardToken = sumitResult.paymentMethodId?.toString() || 'stored';
+    // Prefer the real Sumit CreditCard_Token (used for recurring charges).
+    // Fall back to the numeric ID or 'stored' only if the token is missing.
+    const newCardToken = sumitResult.cardToken
+      || sumitResult.paymentMethodId?.toString()
+      || 'stored';
 
     // Check if this exact payment method (same card token) already exists — reactivate it
     const existingCardRecord = await db.query(
@@ -727,15 +731,61 @@ async function deletePaymentMethod(req, res) {
   try {
     const userId = req.user.id;
     const { methodId } = req.params;
-    
+    const { settleOutstanding = false } = req.body || {};
+
     // Get the payment method to delete
     const methodResult = await db.query(
       'SELECT * FROM user_payment_methods WHERE id = $1 AND user_id = $2',
       [methodId, userId]
     );
-    
+
     if (methodResult.rows.length === 0) {
       return res.status(404).json({ error: 'אמצעי תשלום לא נמצא' });
+    }
+
+    // ── Outstanding-balance guard (save-contact-bot overage) ───────────────
+    // If the user owes overage NIS, they must either pay now or keep the card.
+    // `?settleOutstanding=true` charges the saved card immediately, then proceeds.
+    try {
+      const saveContactUsage = require('../../services/saveContactBot/usage.service');
+      const outstanding = await saveContactUsage.getOutstandingOverage(userId);
+      if (outstanding > 0) {
+        if (!settleOutstanding) {
+          return res.status(409).json({
+            error: 'OUTSTANDING_BALANCE',
+            message: `לא ניתן להסיר את האשראי עד לתשלום של ₪${outstanding} חוב על שימוש מעל למגבלה.`,
+            amountOwed: outstanding,
+          });
+        }
+        // Charge immediately against the card about to be removed.
+        const pm = methodResult.rows[0];
+        if (!pm.sumit_customer_id) {
+          return res.status(400).json({
+            error: 'CANNOT_CHARGE',
+            message: 'אמצעי התשלום חסר פרטי Sumit — צור קשר עם התמיכה.',
+            amountOwed: outstanding,
+          });
+        }
+        const charge = await sumitService.chargeOneTime({
+          customerId: pm.sumit_customer_id,
+          amount: outstanding,
+          description: 'תשלום יתרה על שימוש מעל למגבלה — בוט שמירת איש קשר',
+        });
+        if (!charge?.success) {
+          return res.status(402).json({
+            error: 'CHARGE_FAILED',
+            message: 'החיוב נכשל. נסה שוב או פנה לתמיכה.',
+            amountOwed: outstanding,
+          });
+        }
+        await saveContactUsage.clearOutstandingOverage(userId);
+        console.log(`[Payment] Settled save-contact-bot overage (${outstanding}₪) for user ${userId}, tx ${charge.transactionId}`);
+      }
+    } catch (guardErr) {
+      console.error('[Payment] Outstanding-balance guard error:', guardErr.message);
+      // Fail closed: refuse removal rather than silently letting it go through
+      // when we can't verify the balance.
+      return res.status(500).json({ error: 'שגיאה בבדיקת יתרת חיוב — נסה שוב' });
     }
     
     // Fetch all active subscriptions with plan info BEFORE any cancellations
@@ -2835,18 +2885,32 @@ async function submitPaymentViaLink(req, res) {
     }
     
     const customerId = customerResult.customerId;
-    
-    // Add payment method
-    const paymentMethodResult = await sumitService.createPaymentMethod({
+
+    // Add payment method. NOTE: the service function is setPaymentMethodWithCard
+    // (not createPaymentMethod — that export never existed). This mismatch was
+    // returning 500 "שגיאה בשמירת פרטי התשלום" on every attempt.
+    const paymentMethodResult = await sumitService.setPaymentMethodWithCard({
       customerId,
       cardNumber,
       expiryMonth,
       expiryYear,
       cvv,
-      citizenId
+      citizenId,
+      phone: phone || user.phone,
+      customerInfo: {
+        name: name || user.name,
+        email: user.email,
+        phone: phone || user.phone,
+      },
     });
-    
+
     if (!paymentMethodResult.success) {
+      console.error(
+        '[Payment] Sumit setPaymentMethodWithCard failed for user',
+        userId,
+        '— status:', paymentMethodResult.status,
+        'technical:', paymentMethodResult.technicalError
+      );
       return res.status(400).json({ error: paymentMethodResult.error || 'שגיאה בשמירת כרטיס' });
     }
     
@@ -2856,19 +2920,26 @@ async function submitPaymentViaLink(req, res) {
       [userId]
     );
     
-    // Save to database
+    // Save to database. `card_token` must be the PERMANENT Sumit CreditCard_Token
+    // (used for future charges). Fallbacks ensure NOT NULL is always satisfied
+    // even if Sumit didn't return a token for some reason.
+    const cardTokenToStore =
+      paymentMethodResult.cardToken
+      || (paymentMethodResult.paymentMethodId ? String(paymentMethodResult.paymentMethodId) : null)
+      || 'stored';
+
     await db.query(`
       INSERT INTO user_payment_methods (
-        user_id, sumit_customer_id, card_token, 
-        card_last_digits, card_expiry_month, card_expiry_year, 
+        user_id, sumit_customer_id, card_token,
+        card_last_digits, card_expiry_month, card_expiry_year,
         is_active, is_default
       )
       VALUES ($1, $2, $3, $4, $5, $6, true, true)
     `, [
-      userId, 
-      customerId, 
-      paymentMethodResult.paymentMethodId,
-      cardNumber.slice(-4),
+      userId,
+      customerId,
+      cardTokenToStore,
+      paymentMethodResult.last4Digits || cardNumber.slice(-4),
       expiryMonth,
       expiryYear
     ]);

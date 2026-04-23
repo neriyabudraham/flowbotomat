@@ -144,33 +144,45 @@ export default function DirectPaymentPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {/*
+          method/action are added so browsers reliably recognize this as a
+          credit-card form and trigger Google/Chrome autofill. The onSubmit
+          handler prevents real POST navigation — form is still AJAX.
+        */}
+        <form onSubmit={handleSubmit} method="post" action="#" className="space-y-5" autoComplete="on">
           {/* Card Number */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">מספר כרטיס</label>
+            <label htmlFor="cc-number" className="block text-sm font-medium text-gray-700 mb-1">מספר כרטיס</label>
             <div className="relative">
               <input
+                id="cc-number"
                 type="text"
+                name="cardnumber"
                 value={cardForm.cardNumber}
                 onChange={(e) => setCardForm(prev => ({ ...prev, cardNumber: formatCardNumber(e.target.value) }))}
                 placeholder="1234 5678 9012 3456"
                 maxLength={19}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-left ltr"
+                inputMode="numeric"
+                autoComplete="cc-number"
+                className="w-full pr-11 pl-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-left ltr"
                 dir="ltr"
                 required
               />
-              <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
             </div>
           </div>
 
           {/* Cardholder Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">שם בעל הכרטיס</label>
+            <label htmlFor="cc-name" className="block text-sm font-medium text-gray-700 mb-1">שם בעל הכרטיס</label>
             <input
+              id="cc-name"
               type="text"
+              name="ccname"
               value={cardForm.cardHolder}
               onChange={(e) => setCardForm(prev => ({ ...prev, cardHolder: e.target.value }))}
               placeholder="ישראל ישראלי"
+              autoComplete="cc-name"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               required
             />
@@ -179,10 +191,13 @@ export default function DirectPaymentPage() {
           {/* Expiry & CVV */}
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">חודש</label>
+              <label htmlFor="cc-exp-month" className="block text-sm font-medium text-gray-700 mb-1">חודש</label>
               <select
+                id="cc-exp-month"
+                name="cc-exp-month"
                 value={cardForm.expiryMonth}
                 onChange={(e) => setCardForm(prev => ({ ...prev, expiryMonth: e.target.value }))}
+                autoComplete="cc-exp-month"
                 className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 required
               >
@@ -195,10 +210,13 @@ export default function DirectPaymentPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">שנה</label>
+              <label htmlFor="cc-exp-year" className="block text-sm font-medium text-gray-700 mb-1">שנה</label>
               <select
+                id="cc-exp-year"
+                name="cc-exp-year"
                 value={cardForm.expiryYear}
                 onChange={(e) => setCardForm(prev => ({ ...prev, expiryYear: e.target.value }))}
+                autoComplete="cc-exp-year"
                 className="w-full px-3 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 required
               >
@@ -214,13 +232,17 @@ export default function DirectPaymentPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">CVV</label>
+              <label htmlFor="cc-csc" className="block text-sm font-medium text-gray-700 mb-1">CVV</label>
               <input
+                id="cc-csc"
                 type="text"
+                name="cvc"
                 value={cardForm.cvv}
                 onChange={(e) => setCardForm(prev => ({ ...prev, cvv: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
                 placeholder="123"
                 maxLength={4}
+                inputMode="numeric"
+                autoComplete="cc-csc"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-center"
                 dir="ltr"
                 required
@@ -228,15 +250,19 @@ export default function DirectPaymentPage() {
             </div>
           </div>
 
-          {/* Citizen ID */}
+          {/* Citizen ID (no standard autocomplete token — Israeli specific) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">תעודת זהות</label>
+            <label htmlFor="citizen-id" className="block text-sm font-medium text-gray-700 mb-1">תעודת זהות</label>
             <input
+              id="citizen-id"
               type="text"
+              name="citizenId"
               value={cardForm.citizenId}
               onChange={(e) => setCardForm(prev => ({ ...prev, citizenId: e.target.value.replace(/\D/g, '').slice(0, 9) }))}
               placeholder="000000000"
               maxLength={9}
+              inputMode="numeric"
+              autoComplete="off"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-left ltr"
               dir="ltr"
               required
@@ -245,12 +271,15 @@ export default function DirectPaymentPage() {
 
           {/* Phone */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
+            <label htmlFor="tel" className="block text-sm font-medium text-gray-700 mb-1">טלפון</label>
             <input
+              id="tel"
               type="tel"
+              name="tel"
               value={cardForm.phone}
               onChange={(e) => setCardForm(prev => ({ ...prev, phone: e.target.value }))}
               placeholder="050-0000000"
+              autoComplete="tel"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-left ltr"
               dir="ltr"
             />

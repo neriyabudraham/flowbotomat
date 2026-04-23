@@ -39,6 +39,55 @@ function getMinDateTime() {
   return toLocalDateTimeString(new Date().toISOString());
 }
 
+// Convert legacy settings (active_days + active_hours) into the new per-window
+// list. If neither exists, returns [] (no restrictions — send anytime).
+function migrateLegacyWindows(settings) {
+  if (!settings) return [];
+  const days = Array.isArray(settings.active_days) ? settings.active_days : [];
+  const hours = settings.active_hours;
+  if (!days.length || !hours?.start || !hours?.end) return [];
+  return days.map(d => ({ day: Number(d), start: hours.start, end: hours.end }));
+}
+
+const DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+// Single-row editor for an active send window (day + start + end + delete)
+function WindowRow({ window: w, onChange, onRemove }) {
+  return (
+    <div className="flex items-center gap-2 p-2 bg-white border border-indigo-200 rounded-lg">
+      <select
+        value={w.day}
+        onChange={(e) => onChange({ ...w, day: Number(e.target.value) })}
+        className="px-2 py-1.5 border border-gray-200 rounded-md text-sm"
+      >
+        {DAY_NAMES.map((n, i) => <option key={i} value={i}>{n}</option>)}
+      </select>
+      <span className="text-xs text-gray-500">משעה</span>
+      <input
+        type="time"
+        value={w.start}
+        onChange={(e) => onChange({ ...w, start: e.target.value })}
+        className="px-2 py-1.5 border border-gray-200 rounded-md text-sm"
+      />
+      <span className="text-xs text-gray-500">עד</span>
+      <input
+        type="time"
+        value={w.end}
+        onChange={(e) => onChange({ ...w, end: e.target.value })}
+        className="px-2 py-1.5 border border-gray-200 rounded-md text-sm"
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        className="p-1.5 text-red-500 hover:bg-red-50 rounded-md"
+        title="הסר חלון"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 export default function CampaignsTab({ onRefresh }) {
   const [campaigns, setCampaigns] = useState([]);
   const [audiences, setAudiences] = useState([]);
@@ -486,12 +535,43 @@ export default function CampaignsTab({ onRefresh }) {
 // =============================================
 // Campaign Card Component
 // =============================================
+// Format a future date as a live countdown when under 24 hours, or a full
+// Hebrew date/time when further out. Always returns a readable string.
+function formatUntilDisplay(dateIso, nowMs) {
+  if (!dateIso) return null;
+  const target = new Date(dateIso).getTime();
+  const diff = target - nowMs;
+  if (diff <= 0) return { text: 'מתחיל עכשיו...', imminent: true };
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  if (diff < DAY_MS) {
+    const hours = Math.floor(diff / (60 * 60 * 1000));
+    const minutes = Math.floor((diff % (60 * 60 * 1000)) / (60 * 1000));
+    const seconds = Math.floor((diff % (60 * 1000)) / 1000);
+    let text;
+    if (hours > 0) text = `${hours} שעות ${minutes} דק׳`;
+    else if (minutes > 0) text = `${minutes} דק׳ ${String(seconds).padStart(2, '0')} שנ׳`;
+    else text = `${seconds} שניות`;
+    return { text, imminent: diff < 60_000 };
+  }
+  const d = new Date(target);
+  const dayName = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'][d.getDay()];
+  const dateStr = d.toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return { text: `יום ${dayName} · ${dateStr}`, imminent: false };
+}
+
 function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedule, onCancelSchedule, onDuplicate, onDownloadReport, actionLoading, onRefresh }) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [liveProgress, setLiveProgress] = useState(null);
   const [countdown, setCountdown] = useState(null);
+  const [nowTs, setNowTs] = useState(Date.now());
   const menuButtonRef = useRef(null);
+
+  // Tick once a second so any active countdown stays accurate
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
   const status = STATUS_CONFIG[campaign.status] || STATUS_CONFIG.draft;
   const StatusIcon = status.icon;
   
@@ -662,6 +742,35 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
               
               {campaign.status === 'running' && (
                 <div className="mt-2 space-y-2">
+                  {/* Always-on "next batch" indicator.
+                      • Under 24h → live countdown (updates every second).
+                      • Over 24h → weekday + date + time in Hebrew.
+                      • No next_batch_at → show that we're actively sending. */}
+                  {(() => {
+                    if (campaign.next_batch_at) {
+                      const fmt = formatUntilDisplay(campaign.next_batch_at, nowTs);
+                      return (
+                        <div className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border ${
+                          fmt.imminent
+                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                            : 'text-indigo-700 bg-indigo-50 border-indigo-200'
+                        }`}>
+                          <Clock className="w-4 h-4" />
+                          <span>
+                            {fmt.imminent ? 'מתחיל באצ׳ חדש ' : 'הבאצ׳ הבא בעוד '}
+                            <strong className="mr-1">{fmt.text}</strong>
+                          </span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>באצ׳ פעיל — שולח כעת</span>
+                      </div>
+                    );
+                  })()}
+
                   {/* Live action indicator */}
                   {liveProgress?.liveProgress?.currentAction && (
                     <div className="flex items-center gap-2 text-sm text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg animate-pulse">
@@ -727,8 +836,30 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
                       {campaign.failed_count} נכשלו
                     </span>
                   )}
+                  <span className="flex items-center gap-1 text-gray-500 text-xs">
+                    <Pause className="w-3.5 h-3.5" />
+                    הקמפיין הסתיים — לא יפעל שוב ללא הפעלה מחדש
+                  </span>
                 </div>
               )}
+
+              {/* Predicted next-window for non-running campaigns.
+                  Lets admin see when the window opens even before clicking Start. */}
+              {['draft', 'scheduled', 'paused', 'cancelled'].includes(campaign.status) && campaign.predicted_next_start && (() => {
+                const fmt = formatUntilDisplay(campaign.predicted_next_start, nowTs);
+                if (!fmt) return null;
+                return (
+                  <div className="flex items-center gap-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg mt-2">
+                    <Clock className="w-4 h-4" />
+                    <span>
+                      {campaign.status === 'draft' ? 'כשתלחץ התחלה ייפתח בעוד ' :
+                       campaign.status === 'paused' ? 'כשתחדש — חלון הבא בעוד ' :
+                       'חלון הזמן הבא בעוד '}
+                      <strong className="mr-1">{fmt.text}</strong>
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
           
@@ -826,7 +957,7 @@ function CampaignCard({ campaign, onView, onEdit, onDelete, onAction, onReschedu
                     className="fixed bg-white rounded-xl shadow-xl border border-gray-200 py-1 w-48 z-50"
                     style={{ top: menuPosition.top, left: menuPosition.left }}
                   >
-                    {['draft', 'scheduled'].includes(campaign.status) && (
+                    {['draft', 'scheduled', 'running', 'paused', 'cancelled', 'completed', 'failed'].includes(campaign.status) && (
                       <button
                         onClick={() => { onEdit(); setShowMenu(false); }}
                         className="w-full px-4 py-2.5 text-right text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
@@ -920,6 +1051,15 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
       delay_between_messages: campaign?.settings?.delay_between_messages ?? 2,
       delay_between_batches: campaign?.settings?.delay_between_batches ?? 30,
       batch_size: campaign?.settings?.batch_size ?? 50,
+      batch_delay_minutes: campaign?.settings?.batch_delay_minutes ?? 0,
+      // NEW: per-window list [{day: 0..6, start: "HH:MM", end: "HH:MM"}, ...]
+      // When saved, legacy active_days/active_hours are left untouched on the
+      // campaign but the backend prefers active_windows if present.
+      active_windows: Array.isArray(campaign?.settings?.active_windows) && campaign.settings.active_windows.length > 0
+        ? campaign.settings.active_windows
+        : migrateLegacyWindows(campaign?.settings),
+      timezone: campaign?.settings?.timezone || 'Asia/Jerusalem',
+      allow_resume: campaign?.settings?.allow_resume !== false,
       success_tags: campaign?.settings?.success_tags || [],
       variable_mappings: campaign?.settings?.variable_mappings || {},
       mention_all_groups: campaign?.settings?.mention_all_groups || false,
@@ -1303,7 +1443,7 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
             
             {showSettings && (
               <>
-                <div className="grid md:grid-cols-3 gap-4 mt-4">
+                <div className="grid md:grid-cols-2 gap-4 mt-4">
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">דיליי בין הודעות (שניות)</label>
                     <input
@@ -1312,19 +1452,6 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
                       onChange={(e) => setFormData({
                         ...formData,
                         settings: { ...formData.settings, delay_between_messages: parseInt(e.target.value) || 2 }
-                      })}
-                      min="0"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">דיליי בין קבוצות (שניות)</label>
-                    <input
-                      type="number"
-                      value={formData.settings.delay_between_batches}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        settings: { ...formData.settings, delay_between_batches: parseInt(e.target.value) || 30 }
                       })}
                       min="0"
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
@@ -1342,6 +1469,101 @@ function CampaignEditorModal({ campaign, audiences, templates, onClose, onSaved 
                       min="1"
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
                     />
+                  </div>
+                </div>
+
+                {/* Campaign window — explicit day+time windows */}
+                <div className="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-indigo-900">חלונות שליחה פעילים</div>
+                      <div className="text-xs text-indigo-700 mt-0.5">
+                        הגדר חלון זמן לכל יום שבו תרצה שהקמפיין ישלח (אפשר כמה חלונות באותו יום).
+                        השעות בשעון ישראל.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(formData.settings.active_windows || []).length === 0 && (
+                      <p className="text-xs text-indigo-700 bg-white/60 border border-dashed border-indigo-300 rounded-lg p-3 text-center">
+                        אין חלונות מוגדרים → הקמפיין יישלח בכל שעה ובכל יום
+                      </p>
+                    )}
+                    {(formData.settings.active_windows || []).map((w, i) => (
+                      <WindowRow
+                        key={i}
+                        window={w}
+                        onChange={(updated) => {
+                          const next = [...(formData.settings.active_windows || [])];
+                          next[i] = updated;
+                          setFormData({ ...formData, settings: { ...formData.settings, active_windows: next } });
+                        }}
+                        onRemove={() => {
+                          const next = (formData.settings.active_windows || []).filter((_, idx) => idx !== i);
+                          setFormData({ ...formData, settings: { ...formData.settings, active_windows: next } });
+                        }}
+                      />
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = [...(formData.settings.active_windows || []), { day: 0, start: '11:00', end: '14:00' }];
+                        setFormData({ ...formData, settings: { ...formData.settings, active_windows: next } });
+                      }}
+                      className="w-full py-2 border border-dashed border-indigo-400 text-indigo-700 rounded-lg text-sm hover:bg-white/50 font-medium"
+                    >
+                      + הוסף חלון זמן
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2 border-t border-indigo-200">
+                    <div>
+                      <label className="block text-xs font-medium text-indigo-900 mb-1">המתנה בין קבוצות (דקות)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={formData.settings.batch_delay_minutes ?? 0}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          settings: { ...formData.settings, batch_delay_minutes: parseInt(e.target.value) || 0 },
+                        })}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-indigo-900 mb-1">אזור זמן</label>
+                      <input
+                        type="text"
+                        value={formData.settings.timezone || 'Asia/Jerusalem'}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-600"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-indigo-700">
+                    דוגמה: 20 בגודל קבוצה + 60 דקות המתנה + חלון חמישי 11:00-14:00 → 60 הודעות ליום מחמישי עד חמישי, ממשיך בחלון הבא.
+                  </p>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-indigo-200">
+                    <input
+                      type="checkbox"
+                      id="allow_resume"
+                      checked={formData.settings.allow_resume !== false}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        settings: { ...formData.settings, allow_resume: e.target.checked },
+                      })}
+                      className="w-4 h-4 accent-indigo-600"
+                    />
+                    <label htmlFor="allow_resume" className="text-sm text-indigo-900 cursor-pointer">
+                      אפשר המשך אחרי עצירה ידנית
+                      <span className="text-[11px] text-indigo-600 mr-1">
+                        (ללא סימון — סטופ = עצירה לצמיתות)
+                      </span>
+                    </label>
                   </div>
                 </div>
 

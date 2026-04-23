@@ -403,6 +403,51 @@ async function emitMessageReceived(phone, messageType, connectionId = null, send
  * Check if phone is authorized for any status bot connection
  * Returns array of connections with user info
  */
+/**
+ * Find group-forwards that use the status bot as trigger AND have this phone
+ * as an authorized sender. Only returns forwards whose owner has a status bot connection,
+ * so the trigger message arrived here because the owner's status bot received it.
+ *
+ * Returns: [{ forward_id, forward_name, user_id, connection_id, can_send_without_approval, sender_name }]
+ */
+async function checkStatusBotGroupForwardsAuth(phone) {
+  const normalizedPhone = phone.replace(/\D/g, '');
+  const alt972 = normalizedPhone.startsWith('0') ? '972' + normalizedPhone.slice(1) : normalizedPhone;
+  const alt0 = normalizedPhone.startsWith('972') ? '0' + normalizedPhone.slice(3) : normalizedPhone;
+
+  // Match against stored authorized senders, normalizing both sides by digits-only substring.
+  // Stored value may be "972584254229@s.whatsapp.net", "972584254229", "0584254229", "+972-58-..." etc.
+  const result = await db.query(
+    `SELECT
+       gf.id as forward_id,
+       gf.name as forward_name,
+       gf.user_id,
+       gf.require_confirmation,
+       fas.name as sender_name,
+       fas.can_send_without_approval,
+       u.name as user_name,
+       u.email as user_email
+     FROM forward_authorized_senders fas
+     JOIN group_forwards gf ON gf.id = fas.forward_id
+     JOIN users u ON u.id = gf.user_id
+     WHERE gf.is_active = true
+       AND gf.trigger_type = 'status_bot'
+       AND (
+         regexp_replace(fas.phone_number, '\\D', '', 'g') = $1
+         OR regexp_replace(fas.phone_number, '\\D', '', 'g') = $2
+         OR regexp_replace(fas.phone_number, '\\D', '', 'g') = $3
+       )`,
+    [normalizedPhone, alt972, alt0]
+  );
+
+  const seen = new Set();
+  return result.rows.filter(row => {
+    if (seen.has(row.forward_id)) return false;
+    seen.add(row.forward_id);
+    return true;
+  });
+}
+
 async function checkAuthorization(phone) {
   // Normalize phone - remove all non-digits
   const normalizedPhone = phone.replace(/\D/g, '');
@@ -537,20 +582,41 @@ async function getColorsForConnection(connectionId) {
  * Note: queue_status is always 'pending' - scheduler will pick them up by scheduled_for time
  */
 async function addToQueue(connectionId, statusType, content, scheduledFor = null, sourcePhone = null) {
+  // Dedup: if the same status (same connection + type + content + source_phone) was queued
+  // within the last 60 seconds and is still pending/processing/sent, return the existing entry.
+  // This prevents webhook double-fires or rapid button double-taps from creating duplicates.
+  const contentJson = JSON.stringify(content);
+  const dedup = await db.query(
+    `SELECT * FROM status_bot_queue
+     WHERE connection_id = $1
+       AND status_type = $2
+       AND content::text = $3::text
+       AND COALESCE(source_phone, '') = COALESCE($4::varchar, '')
+       AND (scheduled_for IS NULL AND $5::timestamp IS NULL OR scheduled_for = $5::timestamp)
+       AND queue_status IN ('pending', 'processing', 'scheduled', 'sent')
+       AND created_at > NOW() - INTERVAL '60 seconds'
+     ORDER BY created_at DESC LIMIT 1`,
+    [connectionId, statusType, contentJson, sourcePhone, scheduledFor]
+  );
+  if (dedup.rows.length > 0) {
+    console.log(`[StatusBot] 🔁 Deduped duplicate queue insert for connection=${connectionId} — returning existing id=${dedup.rows[0].id}`);
+    return dedup.rows[0];
+  }
+
   const result = await db.query(
-    `INSERT INTO status_bot_queue 
+    `INSERT INTO status_bot_queue
      (connection_id, status_type, content, queue_status, scheduled_for, source, source_phone)
      VALUES ($1, $2, $3, 'pending', $4, 'whatsapp', $5)
      RETURNING *`,
     [
       connectionId,
       statusType,
-      JSON.stringify(content),
+      contentJson,
       scheduledFor,
       sourcePhone
     ]
   );
-  
+
   return result.rows[0];
 }
 
@@ -619,18 +685,18 @@ async function handleMessage(phone, message) {
   try {
     const state = await getState(phone);
 
-    // Emit message received event for admin real-time monitoring
-    // Get user info from state if available
-    const authorizations = await checkAuthorization(phone);
-    const auth = authorizations[0];
-    emitMessageReceived(
-      phone, 
-      message.type, 
-      auth?.connection_id || state.connection_id,
-      auth?.authorized_name,
-      auth?.user_name,
-      auth?.user_email
-    );
+    // Fire-and-forget admin monitoring event (don't block message handling on it)
+    (async () => {
+      try {
+        const auths = await checkAuthorization(phone);
+        const a = auths[0];
+        emitMessageReceived(
+          phone, message.type,
+          a?.connection_id || state.connection_id,
+          a?.authorized_name, a?.user_name, a?.user_email
+        );
+      } catch (e) { /* non-fatal */ }
+    })();
     
     // Check if blocked
     if (state.blocked_until && new Date(state.blocked_until) > new Date()) {
@@ -665,13 +731,59 @@ async function handleMessage(phone, message) {
     if (message.type === 'interactive') {
       const interactiveType = message.interactive.type;
       let selectedId = null;
-      
+
       if (interactiveType === 'button_reply') {
         selectedId = message.interactive.button_reply.id;
       } else if (interactiveType === 'list_reply') {
         selectedId = message.interactive.list_reply.id;
       }
-      
+
+      // Group forwards confirm/schedule/cancel/day/back buttons
+      if (selectedId && (
+        selectedId.startsWith('fwd_confirm_') ||
+        selectedId.startsWith('fwd_cancel_') ||
+        selectedId.startsWith('fwd_schedule_') ||
+        selectedId.startsWith('fwd_day_') ||
+        selectedId.startsWith('fwd_back_')
+      )) {
+        await handleStatusBotForwardDecision(phone, selectedId, message);
+        return;
+      }
+
+      // Post-send actions (edit/delete after completion)
+      if (selectedId && (selectedId.startsWith('fwd_edit_') || selectedId.startsWith('fwd_delete_'))) {
+        await handleCompletedJobAction(phone, selectedId);
+        return;
+      }
+
+      // Stop actions during sending
+      if (selectedId && (selectedId.startsWith('fwd_stop_') || selectedId.startsWith('fwd_stopdelete_'))) {
+        await handleStopJobAction(phone, selectedId);
+        return;
+      }
+
+      // Edit confirmation buttons — let state handler process them
+      if (selectedId && (
+        selectedId.startsWith('fwd_editconfirm_') ||
+        selectedId.startsWith('fwd_editretry_') ||
+        selectedId.startsWith('fwd_editcancel_')
+      )) {
+        if (state.state === 'waiting_fwd_edit_confirm') {
+          await handleWaitingFwdEditConfirm(phone, message, state);
+        }
+        return;
+      }
+
+      // Scheduled forwards actions (edit/delete/reschedule/cancel) and reschedule day picker
+      if (selectedId && selectedId.startsWith('sched_day_')) {
+        await handleScheduledDayPick(phone, selectedId);
+        return;
+      }
+      if (selectedId && /^sched_(edit|delete_msg|reschedule|cancel)_/.test(selectedId)) {
+        await handleScheduledForwardAction(phone, selectedId);
+        return;
+      }
+
       // Check if it's our new format with statusId (e.g., send_abc12345, color_782138_abc12345)
       if (selectedId && selectedId.includes('_')) {
         const result = await handleInteractiveWithStatusId(phone, selectedId, message);
@@ -716,6 +828,27 @@ async function handleMessage(phone, message) {
       
       case 'after_send_menu':
         return await handleAfterSendMenuState(phone, message, state);
+
+      case 'select_destination':
+        return await handleSelectDestinationState(phone, message, state);
+
+      case 'pending_destination_forward':
+        return await handlePendingForwardState(phone, message, state);
+
+      case 'waiting_fwd_schedule_time':
+        return await handleWaitingFwdScheduleTimeState(phone, message, state);
+
+      case 'waiting_sched_reschedule_time':
+        return await handleWaitingSchedRescheduleTime(phone, message, state);
+
+      case 'waiting_sched_edit':
+        return await handleWaitingSchedEdit(phone, message, state);
+
+      case 'waiting_fwd_edit_text':
+        return await handleWaitingFwdEditText(phone, message, state);
+
+      case 'waiting_fwd_edit_confirm':
+        return await handleWaitingFwdEditConfirm(phone, message, state);
       
       case 'video_split_caption_choice':
         return await handleVideoSplitCaptionChoiceState(phone, message, state);
@@ -982,12 +1115,22 @@ async function handleQueuedAction(phone, selectedId, contextMessageId = null) {
               id: queueItem.waha_message_id,
               contacts: null
             });
-            
-            // Mark as deleted in DB
+
+            // Mark as deleted + request immediate force-stop of any ongoing send
             if (queueItem.status_id) {
               await db.query(`UPDATE status_bot_statuses SET deleted_at = NOW() WHERE id = $1`, [queueItem.status_id]);
             }
-            
+            // Cancel the queue entry so retries don't re-upload
+            await db.query(
+              `UPDATE status_bot_queue SET queue_status = 'cancelled', updated_at = NOW() WHERE id = $1 AND queue_status NOT IN ('cancelled', 'sent')`,
+              [statusId]
+            ).catch(() => {});
+            // If status is still being sent (processing), signal immediate stop
+            try {
+              const { forceStopItem } = require('../statusBot/queue.service');
+              await forceStopItem(statusId);
+            } catch (e) { /* non-fatal */ }
+
             await cloudApi.sendTextMessage(phone, '✅ הסטטוס נמחק מווצאפ', contextMessageId);
           } catch (deleteErr) {
             console.error('[CloudAPI] Error deleting status from WhatsApp:', deleteErr.message);
@@ -2148,23 +2291,69 @@ function buildQueueContent(pendingStatus) {
 /**
  * Handle message in idle state - new status creation
  * Now supports multiple concurrent statuses with unique IDs
+ *
+ * @param {Object} options - { skipDestinationMenu: true } forces status-upload path
+ *                           without re-showing the status/forwards chooser (used when
+ *                           called back from handleSelectDestinationState after the
+ *                           user has already chosen "סטטוס").
  */
-async function handleIdleState(phone, message, state) {
+async function handleIdleState(phone, message, state, options = {}) {
   const messageId = message.id; // Original message ID for reply context
+  const { skipDestinationMenu = false } = options;
 
-  // Check authorization
-  const authorizedConnections = await checkAuthorization(phone);
+  // Check authorization for status upload + group forwards trigger via status bot (in parallel)
+  const [authorizedConnections, forwardAuths] = await Promise.all([
+    checkAuthorization(phone),
+    checkStatusBotGroupForwardsAuth(phone),
+  ]);
 
-  if (authorizedConnections.length === 0) {
+  const hasStatus = authorizedConnections.length > 0;
+  const hasForwards = forwardAuths.length > 0;
+
+  if (!hasStatus && !hasForwards) {
     if (!state.notified_not_authorized) {
-      await cloudApi.sendTextMessage(phone, 
-        `שלום! על מנת להעלות סטטוסים דרך המספר הזה, יש להגדיר אותו כמספר מורשה בבוט העלאת הסטטוסים.\n\nלהרשמה: https://botomat.co.il/`
+      await cloudApi.sendTextMessage(phone,
+        `שלום! על מנת להשתמש בבוט, יש להגדיר את המספר הזה כמספר מורשה.\n\nלהרשמה: https://botomat.co.il/`
       );
       await db.query(
         `UPDATE cloud_api_conversation_states SET notified_not_authorized = true WHERE phone_number = $1`,
         [phone]
       );
     }
+    return;
+  }
+
+  // If user has access to group forwards (and not only status), show destination menu
+  // Only show menu for messages that could go either way (text/image/video/audio)
+  // skipDestinationMenu bypasses this when the user has already chosen "סטטוס"
+  // in handleSelectDestinationState — otherwise we'd infinitely re-ask.
+  const isContentMessage = ['text', 'image', 'video', 'audio'].includes(message.type);
+  if (hasForwards && isContentMessage && !skipDestinationMenu) {
+    // Pre-save the incoming message for later use
+    const pendingMsg = {
+      type: message.type,
+      messageId: message.id,
+      raw: message,
+    };
+
+    if (!hasStatus) {
+      // Only group forwards → go directly to forward handling
+      await setState(phone, 'pending_destination_forward', { pendingMsg, forwardAuths }, null);
+      return await promptForwardSelection(phone, pendingMsg, forwardAuths);
+    }
+
+    // Both status upload AND group forwards → ask user what they want
+    const buttons = [
+      { id: 'dest_status', title: '📸 סטטוס' },
+      { id: 'dest_forward', title: '📤 תפוצה לקבוצות' },
+    ];
+    await cloudApi.sendButtonMessage(
+      phone,
+      `שלום! מה תרצה לעשות עם ההודעה?`,
+      buttons,
+      message.id
+    );
+    await setState(phone, 'select_destination', { pendingMsg, forwardAuths }, null);
     return;
   }
   
@@ -3223,6 +3412,772 @@ async function handleSelectScheduleTimeState(phone, message, state) {
 /**
  * Handle after send menu state
  */
+/**
+ * Prompt user to pick a specific forward (when they have more than one).
+ * If only one forward, trigger it directly.
+ */
+async function promptForwardSelection(phone, pendingMsg, forwardAuths) {
+  if (forwardAuths.length === 1) {
+    return await triggerChosenForward(phone, pendingMsg, forwardAuths[0]);
+  }
+
+  const rows = forwardAuths.slice(0, 10).map(f => ({
+    id: `fwd_${f.forward_id}`,
+    title: (f.forward_name || 'תפוצה').slice(0, 24),
+    description: (f.user_name || '').slice(0, 72),
+  }));
+
+  await cloudApi.sendListMessage(
+    phone,
+    `בחר איזו תפוצה להפעיל`,
+    'בחר תפוצה',
+    [{ title: 'תפוצות זמינות', rows }]
+  );
+  await setState(phone, 'pending_destination_forward', { pendingMsg, forwardAuths }, null);
+}
+
+/**
+ * Actually trigger the forward for the chosen pending message.
+ */
+async function triggerChosenForward(phone, pendingMsg, forwardAuth) {
+  try {
+    const { triggerFromStatusBot } = require('../groupForwards/statusBotTrigger.service');
+    const result = await triggerFromStatusBot(forwardAuth.user_id, forwardAuth.forward_id, phone, pendingMsg.raw);
+
+    if (result.requireConfirmation) {
+      // Send confirmation list with 3 options (matches the regular WAHA bot UX)
+      const sections = [{
+        title: 'בחר פעולה',
+        rows: [
+          { id: `fwd_confirm_${result.jobId}`, title: '✅ שלח עכשיו', description: `שלח מיד ל-${result.targetCount} קבוצות` },
+          { id: `fwd_schedule_${result.jobId}`, title: '⏰ תזמן שליחה', description: 'תזמן לתאריך ושעה' },
+          { id: `fwd_cancel_${result.jobId}`, title: '❌ בטל', description: 'בטל את ההפצה' },
+        ]
+      }];
+      await cloudApi.sendListMessage(
+        phone,
+        `📤 *${result.forwardName}*\n\nלשלוח את ההודעה ל-${result.targetCount} קבוצות?`,
+        'בחר פעולה',
+        sections
+      );
+    } else {
+      // Auto-confirmed - send list with stop options
+      const sections = [{
+        title: 'פעולות',
+        rows: [
+          { id: `fwd_stop_${result.jobId}`, title: '⏹️ עצור', description: 'עצור את השליחה' },
+          { id: `fwd_stopdelete_${result.jobId}`, title: '🗑️ עצור ומחק', description: 'עצור ומחק את ההודעות שנשלחו' },
+        ]
+      }];
+      await cloudApi.sendListMessage(
+        phone,
+        `📤 *${result.forwardName}*\n\n✅ שולח ל-${result.targetCount} קבוצות...\n\nבחר פעולה במידה ותרצה לעצור`,
+        'פעולות',
+        sections
+      );
+    }
+  } catch (err) {
+    console.error('[GroupForwards] triggerFromStatusBot error:', err);
+    await cloudApi.sendTextMessage(phone, `❌ שגיאה: ${err.message}`, pendingMsg.messageId);
+  }
+  await setState(phone, 'idle', null, null);
+}
+
+async function handleSelectDestinationState(phone, message, state) {
+  const stateData = state.state_data || {};
+  const pendingMsg = stateData.pendingMsg;
+  const forwardAuths = stateData.forwardAuths || [];
+
+  if (!pendingMsg) {
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+
+  if (message.type !== 'interactive') {
+    // User sent a new message - treat as new idle (start fresh)
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
+  }
+
+  const selectedId = message.interactive?.button_reply?.id || message.interactive?.list_reply?.id;
+
+  if (selectedId === 'dest_status') {
+    // User wants to upload as status — re-enter idle flow but bypass the
+    // destination chooser so we don't loop back to the same menu.
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, pendingMsg.raw, { state: 'idle' }, { skipDestinationMenu: true });
+  }
+  if (selectedId === 'dest_forward') {
+    return await promptForwardSelection(phone, pendingMsg, forwardAuths);
+  }
+
+  // Unknown - ask again
+  await cloudApi.sendTextMessage(phone, 'אנא בחר אפשרות מהתפריט');
+}
+
+async function handlePendingForwardState(phone, message, state) {
+  const stateData = state.state_data || {};
+  const pendingMsg = stateData.pendingMsg;
+  const forwardAuths = stateData.forwardAuths || [];
+
+  if (!pendingMsg) {
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+
+  if (message.type !== 'interactive') {
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
+  }
+
+  const selectedId = message.interactive?.list_reply?.id || message.interactive?.button_reply?.id || '';
+  if (selectedId.startsWith('fwd_')) {
+    const forwardId = selectedId.substring(4);
+    const chosen = forwardAuths.find(f => f.forward_id === forwardId);
+    if (!chosen) {
+      await cloudApi.sendTextMessage(phone, '❌ תפוצה לא נמצאה');
+      await setState(phone, 'idle', null, null);
+      return;
+    }
+    return await triggerChosenForward(phone, pendingMsg, chosen);
+  }
+
+  await cloudApi.sendTextMessage(phone, 'אנא בחר תפוצה מהתפריט');
+}
+
+/**
+ * Handle confirm/schedule/cancel/day button clicks for status_bot group forward jobs.
+ */
+async function handleStatusBotForwardDecision(phone, selectedId, message) {
+  try {
+    // Parse action + jobId
+    let action, jobId, dayOffset;
+    if (selectedId.startsWith('fwd_confirm_')) {
+      action = 'confirm'; jobId = selectedId.substring('fwd_confirm_'.length);
+    } else if (selectedId.startsWith('fwd_cancel_')) {
+      action = 'cancel'; jobId = selectedId.substring('fwd_cancel_'.length);
+    } else if (selectedId.startsWith('fwd_schedule_')) {
+      action = 'schedule'; jobId = selectedId.substring('fwd_schedule_'.length);
+    } else if (selectedId.startsWith('fwd_day_')) {
+      // Format: fwd_day_{jobId}_{dayOffset}
+      const rest = selectedId.substring('fwd_day_'.length);
+      const lastUnderscore = rest.lastIndexOf('_');
+      jobId = rest.substring(0, lastUnderscore);
+      dayOffset = parseInt(rest.substring(lastUnderscore + 1));
+      action = 'pick_day';
+    } else if (selectedId.startsWith('fwd_back_')) {
+      action = 'back'; jobId = selectedId.substring('fwd_back_'.length);
+    } else {
+      return;
+    }
+
+    const jobRow = await db.query(
+      `SELECT id, user_id, status, forward_name, total_targets FROM forward_jobs WHERE id = $1`,
+      [jobId]
+    );
+    if (jobRow.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '❌ המשימה לא נמצאה.');
+      return;
+    }
+    const job = jobRow.rows[0];
+
+    // Allow pending or pending_schedule states for these actions
+    const allowedStatuses = ['pending', 'pending_schedule'];
+    if (!allowedStatuses.includes(job.status)) {
+      const statusText = {
+        'confirmed': '⏳ המשימה כבר בתהליך שליחה.',
+        'sending': '⏳ המשימה כבר בתהליך שליחה.',
+        'completed': '✅ המשימה הושלמה.',
+        'cancelled': '❌ המשימה בוטלה.',
+        'stopped': '⏹️ המשימה נעצרה.',
+      }[job.status] || `סטטוס נוכחי: ${job.status}`;
+      await cloudApi.sendTextMessage(phone, statusText);
+      return;
+    }
+
+    if (action === 'confirm') {
+      await db.query(`UPDATE forward_jobs SET status = 'confirmed', updated_at = NOW() WHERE id = $1`, [jobId]);
+
+      const sections = [{
+        title: 'פעולות',
+        rows: [
+          { id: `fwd_stop_${jobId}`, title: '⏹️ עצור', description: 'עצור את השליחה' },
+          { id: `fwd_stopdelete_${jobId}`, title: '🗑️ עצור ומחק', description: 'עצור ומחק את ההודעות שנשלחו' },
+        ]
+      }];
+      await cloudApi.sendListMessage(
+        phone,
+        `📤 *${job.forward_name}*\n\n✅ מתחיל לשלוח ל-${job.total_targets} קבוצות...\n\nבחר פעולה במידה ותרצה לעצור`,
+        'פעולות',
+        sections
+      );
+
+      try {
+        const { startForwardJob } = require('../../controllers/groupForwards/jobs.controller');
+        startForwardJob(jobId).catch(err => console.error('[StatusBotForward] startForwardJob error:', err.message));
+      } catch (e) {
+        console.error('[StatusBotForward] Could not start job:', e.message);
+      }
+      await setState(phone, 'idle', null, null);
+      return;
+    }
+
+    if (action === 'cancel') {
+      await db.query(`UPDATE forward_jobs SET status = 'cancelled', completed_at = NOW(), updated_at = NOW() WHERE id = $1`, [jobId]);
+      await cloudApi.sendTextMessage(phone, `❌ המשימה בוטלה.`);
+      await setState(phone, 'idle', null, null);
+      return;
+    }
+
+    if (action === 'schedule') {
+      // Show 8-day picker
+      await db.query(`UPDATE forward_jobs SET status = 'pending_schedule', updated_at = NOW() WHERE id = $1`, [jobId]);
+      const days = [];
+      const now = new Date();
+      const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+      for (let i = 0; i < 8; i++) {
+        const date = new Date(now); date.setDate(date.getDate() + i);
+        const dayOfWeek = DAY_NAMES_HE[date.getDay()];
+        const dateStr = `${date.getDate()}/${date.getMonth() + 1}`;
+        let title = `יום ${dayOfWeek} - ${dateStr}`;
+        if (i === 0) title = `היום - ${dayOfWeek}`;
+        if (i === 1) title = `מחר - ${dayOfWeek}`;
+        days.push({ id: `fwd_day_${jobId}_${i}`, title: title.slice(0, 24), description: dateStr });
+      }
+      days.push({ id: `fwd_back_${jobId}`, title: '🔙 חזרה', description: 'חזור לבחירה' });
+
+      await cloudApi.sendListMessage(
+        phone,
+        `⏰ *תזמון - ${job.forward_name}*\n\nבאיזה יום לשלוח ל-${job.total_targets} קבוצות?`,
+        'בחר יום',
+        [{ title: 'בחר יום', rows: days }]
+      );
+      // Save state so we can keep the jobId across messages
+      await setState(phone, 'waiting_fwd_schedule_time', { jobId }, null);
+      return;
+    }
+
+    if (action === 'pick_day') {
+      // Save chosen day, then ask for time (free-text input)
+      const chosenDay = new Date();
+      chosenDay.setDate(chosenDay.getDate() + dayOffset);
+      chosenDay.setHours(0, 0, 0, 0);
+      await setState(phone, 'waiting_fwd_schedule_time', {
+        jobId,
+        chosenDay: chosenDay.toISOString(),
+      }, null);
+      await cloudApi.sendTextMessage(
+        phone,
+        `⏰ באיזו שעה לשלוח? (פורמט: HH:MM, לדוגמה 14:30)`
+      );
+      return;
+    }
+
+    if (action === 'back') {
+      // Re-send the original confirmation list
+      await db.query(`UPDATE forward_jobs SET status = 'pending', updated_at = NOW() WHERE id = $1`, [jobId]);
+      const sections = [{
+        title: 'בחר פעולה',
+        rows: [
+          { id: `fwd_confirm_${jobId}`, title: '✅ שלח עכשיו', description: `שלח מיד ל-${job.total_targets} קבוצות` },
+          { id: `fwd_schedule_${jobId}`, title: '⏰ תזמן שליחה', description: 'תזמן לתאריך ושעה' },
+          { id: `fwd_cancel_${jobId}`, title: '❌ בטל', description: 'בטל את ההפצה' },
+        ]
+      }];
+      await cloudApi.sendListMessage(
+        phone,
+        `📤 *${job.forward_name}*\n\nלשלוח את ההודעה ל-${job.total_targets} קבוצות?`,
+        'בחר פעולה',
+        sections
+      );
+      return;
+    }
+  } catch (err) {
+    console.error('[StatusBotForward] Decision handler error:', err);
+    await cloudApi.sendTextMessage(phone, `❌ שגיאה: ${err.message}`);
+  }
+}
+
+/**
+ * Convert "YYYY-MM-DDTHH:MM:00" (Israel local time) to UTC Date
+ * Accounts for Israel DST transitions.
+ */
+function convertIsraelTimeToUTC_cloud(dateStr, timeStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = timeStr.split(':').map(Number);
+  // Use noon as reference to determine DST offset for the day
+  const refDate = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const israelHourStr = refDate.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem', hour: '2-digit', hour12: false });
+  const israelHour = parseInt(israelHourStr);
+  const utcHour = refDate.getUTCHours();
+  const offsetHours = israelHour - utcHour; // 2 in winter, 3 in summer
+  return new Date(Date.UTC(y, m - 1, d, hh - offsetHours, mm, 0));
+}
+
+/**
+ * Handle state when waiting for schedule time input (HH:MM format).
+ * Creates a scheduled_forwards entry (same mechanism as regular bot)
+ * so the existing scheduler picks it up at the right Israel time.
+ */
+async function handleWaitingFwdScheduleTimeState(phone, message, state) {
+  const stateData = state.state_data || {};
+  const jobId = stateData.jobId;
+  const chosenDayISO = stateData.chosenDay;
+
+  if (!jobId || !chosenDayISO) {
+    await setState(phone, 'idle', null, null);
+    return await handleIdleState(phone, message, { state: 'idle' });
+  }
+
+  if (message.type !== 'text') {
+    await cloudApi.sendTextMessage(phone, '⚠️ אנא שלח את השעה בפורמט HH:MM (למשל 14:30)');
+    return;
+  }
+
+  const text = (message.text?.body || '').trim();
+  // Accept: 14:30 | 14.30 | 1430 | 14 (= 14:00)
+  const cleaned = text.replace(/[^\d:.]/g, '');
+  let hour, minute;
+  const colonMatch = cleaned.match(/^(\d{1,2})[:.](\d{2})$/);
+  const hmMatch = cleaned.match(/^(\d{3,4})$/);
+  const hOnlyMatch = cleaned.match(/^(\d{1,2})$/);
+  if (colonMatch) {
+    hour = parseInt(colonMatch[1]); minute = parseInt(colonMatch[2]);
+  } else if (hmMatch) {
+    const str = hmMatch[1].padStart(4, '0');
+    hour = parseInt(str.substring(0, 2)); minute = parseInt(str.substring(2));
+  } else if (hOnlyMatch) {
+    hour = parseInt(hOnlyMatch[1]); minute = 0;
+  } else {
+    await cloudApi.sendTextMessage(phone, '⚠️ פורמט שעה לא תקין. דוגמה: 14:30, 1430, או 14');
+    return;
+  }
+  if (hour > 23 || minute > 59) {
+    await cloudApi.sendTextMessage(phone, '⚠️ שעה לא תקינה. דוגמה: 14:30');
+    return;
+  }
+
+  // Extract Y-M-D from the chosen day (which was stored as ISO from user's local Date)
+  const chosen = new Date(chosenDayISO);
+  const year = chosen.getFullYear();
+  const month = String(chosen.getMonth() + 1).padStart(2, '0');
+  const day = String(chosen.getDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+
+  // Convert Israel time → UTC (matches the regular bot behavior)
+  const scheduledAtUTC = convertIsraelTimeToUTC_cloud(dateStr, timeStr);
+
+  if (scheduledAtUTC.getTime() <= Date.now()) {
+    await cloudApi.sendTextMessage(phone, '⚠️ הזמן שנבחר כבר עבר. אנא בחר שעה עתידית.');
+    return;
+  }
+
+  try {
+    // Load the job to get message/media details
+    const jobRes = await db.query(
+      `SELECT fj.*, COALESCE(gf.name, fj.forward_name) as forward_name, fj.forward_id
+       FROM forward_jobs fj
+       LEFT JOIN group_forwards gf ON fj.forward_id = gf.id
+       WHERE fj.id = $1`,
+      [jobId]
+    );
+    if (jobRes.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '❌ לא נמצאה המשימה');
+      await setState(phone, 'idle', null, null);
+      return;
+    }
+    const job = jobRes.rows[0];
+
+    // Create a scheduled_forwards entry (picked up by the existing cron scheduler)
+    const insertRes = await db.query(
+      `INSERT INTO scheduled_forwards
+         (user_id, forward_id, message_type, message_content, media_url, media_filename, scheduled_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+       RETURNING id`,
+      [job.user_id, job.forward_id, job.message_type, job.message_text, job.media_url, job.media_filename, scheduledAtUTC]
+    );
+    const scheduledId = insertRes.rows[0].id;
+
+    // Cancel the original forward_job (superseded by scheduled_forwards)
+    await db.query(`UPDATE forward_jobs SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [jobId]);
+
+    // Format display in Israel time
+    const displayStr = scheduledAtUTC.toLocaleString('he-IL', {
+      timeZone: 'Asia/Jerusalem',
+      weekday: 'long', day: 'numeric', month: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+
+    // Send summary + action list
+    const sections = [{
+      title: 'פעולות',
+      rows: [
+        { id: `sched_edit_${scheduledId}`, title: '✏️ ערוך הודעה', description: 'עדכן את טקסט ההודעה' },
+        { id: `sched_delete_msg_${scheduledId}`, title: '🗑️ מחק הודעה', description: 'מחק את ההודעה המתוזמנת' },
+        { id: `sched_reschedule_${scheduledId}`, title: '🔄 שנה תזמון', description: 'שנה תאריך/שעה' },
+        { id: `sched_cancel_${scheduledId}`, title: '❌ עצור תזמון', description: 'בטל את התזמון' },
+      ]
+    }];
+
+    await cloudApi.sendListMessage(
+      phone,
+      `⏰ *תוזמן בהצלחה!*\n\n📤 *${job.forward_name}*\nההודעה תישלח ל-${job.total_targets} קבוצות\n📅 ${displayStr}`,
+      'בחר פעולה',
+      sections
+    );
+  } catch (err) {
+    console.error('[StatusBotForward] Schedule error:', err);
+    await cloudApi.sendTextMessage(phone, `❌ שגיאה בתזמון: ${err.message}`);
+  }
+  await setState(phone, 'idle', null, null);
+}
+
+/**
+ * Handle button clicks for scheduled_forwards (edit/delete/reschedule/cancel).
+ */
+async function handleScheduledForwardAction(phone, selectedId) {
+  const m = selectedId.match(/^sched_(edit|delete_msg|reschedule|cancel)_(.+)$/);
+  if (!m) return;
+  const action = m[1];
+  const scheduledId = m[2];
+
+  try {
+    const row = await db.query(
+      `SELECT sf.*, gf.name as forward_name FROM scheduled_forwards sf
+       LEFT JOIN group_forwards gf ON gf.id = sf.forward_id WHERE sf.id = $1`,
+      [scheduledId]
+    );
+    if (row.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '❌ התזמון לא נמצא.');
+      return;
+    }
+    const sf = row.rows[0];
+    if (sf.status !== 'pending') {
+      await cloudApi.sendTextMessage(phone, `ℹ️ התזמון כבר ${sf.status === 'executed' ? 'נשלח' : 'בוטל'}.`);
+      return;
+    }
+
+    if (action === 'cancel') {
+      await db.query(`UPDATE scheduled_forwards SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [scheduledId]);
+      await cloudApi.sendTextMessage(phone, `❌ התזמון בוטל.\nההודעה לא תישלח.`);
+      return;
+    }
+
+    if (action === 'delete_msg') {
+      await db.query(`UPDATE scheduled_forwards SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [scheduledId]);
+      await cloudApi.sendTextMessage(phone, `🗑️ ההודעה נמחקה והתזמון בוטל.`);
+      return;
+    }
+
+    if (action === 'edit') {
+      await setState(phone, 'waiting_sched_edit', { scheduledId }, null);
+      await cloudApi.sendTextMessage(
+        phone,
+        `✏️ שלח את ההודעה החדשה.\n\n(ההודעה הקיימת תוחלף. התזמון והקבוצות נשארים.)`
+      );
+      return;
+    }
+
+    if (action === 'reschedule') {
+      // Show day picker again, but for reschedule flow
+      const days = [];
+      const now = new Date();
+      const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+      for (let i = 0; i < 8; i++) {
+        const date = new Date(now); date.setDate(date.getDate() + i);
+        const dayOfWeek = DAY_NAMES_HE[date.getDay()];
+        const dateStr = `${date.getDate()}/${date.getMonth() + 1}`;
+        let title = `יום ${dayOfWeek} - ${dateStr}`;
+        if (i === 0) title = `היום - ${dayOfWeek}`;
+        if (i === 1) title = `מחר - ${dayOfWeek}`;
+        days.push({ id: `sched_day_${scheduledId}_${i}`, title: title.slice(0, 24), description: dateStr });
+      }
+      await cloudApi.sendListMessage(
+        phone,
+        `🔄 *שינוי תזמון - ${sf.forward_name}*\n\nבאיזה יום לשלוח?`,
+        'בחר יום',
+        [{ title: 'בחר יום', rows: days }]
+      );
+      return;
+    }
+  } catch (err) {
+    console.error('[StatusBotForward] Scheduled action error:', err);
+    await cloudApi.sendTextMessage(phone, `❌ שגיאה: ${err.message}`);
+  }
+}
+
+/**
+ * Handle day picker for reschedule (sched_day_ID_OFFSET)
+ */
+async function handleScheduledDayPick(phone, selectedId) {
+  const m = selectedId.match(/^sched_day_(.+)_(\d+)$/);
+  if (!m) return;
+  const scheduledId = m[1];
+  const dayOffset = parseInt(m[2]);
+
+  const chosenDay = new Date();
+  chosenDay.setDate(chosenDay.getDate() + dayOffset);
+  chosenDay.setHours(0, 0, 0, 0);
+
+  await setState(phone, 'waiting_sched_reschedule_time', {
+    scheduledId,
+    chosenDay: chosenDay.toISOString(),
+  }, null);
+  await cloudApi.sendTextMessage(phone, `⏰ באיזו שעה לשלוח? (פורמט: HH:MM)`);
+}
+
+async function handleWaitingSchedRescheduleTime(phone, message, state) {
+  const stateData = state.state_data || {};
+  const { scheduledId, chosenDay: chosenDayISO } = stateData;
+  if (!scheduledId || !chosenDayISO) {
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+  if (message.type !== 'text') {
+    await cloudApi.sendTextMessage(phone, '⚠️ שלח את השעה בפורמט HH:MM');
+    return;
+  }
+  const text = (message.text?.body || '').trim().replace(/[^\d:.]/g, '');
+  const colonMatch = text.match(/^(\d{1,2})[:.](\d{2})$/);
+  const hmMatch = text.match(/^(\d{3,4})$/);
+  let hour, minute;
+  if (colonMatch) { hour = parseInt(colonMatch[1]); minute = parseInt(colonMatch[2]); }
+  else if (hmMatch) { const s = hmMatch[1].padStart(4, '0'); hour = parseInt(s.substring(0, 2)); minute = parseInt(s.substring(2)); }
+  else { await cloudApi.sendTextMessage(phone, '⚠️ פורמט שעה לא תקין'); return; }
+  if (hour > 23 || minute > 59) { await cloudApi.sendTextMessage(phone, '⚠️ שעה לא תקינה'); return; }
+
+  const chosen = new Date(chosenDayISO);
+  const dateStr = `${chosen.getFullYear()}-${String(chosen.getMonth() + 1).padStart(2, '0')}-${String(chosen.getDate()).padStart(2, '0')}`;
+  const timeStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  const scheduledAtUTC = convertIsraelTimeToUTC_cloud(dateStr, timeStr);
+  if (scheduledAtUTC.getTime() <= Date.now()) {
+    await cloudApi.sendTextMessage(phone, '⚠️ הזמן שנבחר כבר עבר');
+    return;
+  }
+
+  await db.query(`UPDATE scheduled_forwards SET scheduled_at = $1, updated_at = NOW() WHERE id = $2`, [scheduledAtUTC, scheduledId]);
+  const displayStr = scheduledAtUTC.toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', weekday: 'long', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  await cloudApi.sendTextMessage(phone, `🔄 התזמון עודכן בהצלחה!\n📅 ${displayStr}`);
+  await setState(phone, 'idle', null, null);
+}
+
+/**
+ * Handle post-completion actions on a forward_job (edit messages / delete messages).
+ */
+async function handleCompletedJobAction(phone, selectedId) {
+  const isDelete = selectedId.startsWith('fwd_delete_');
+  const jobId = selectedId.substring(isDelete ? 'fwd_delete_'.length : 'fwd_edit_'.length);
+
+  try {
+    const jobRes = await db.query(
+      `SELECT id, user_id, status, forward_name FROM forward_jobs WHERE id = $1`,
+      [jobId]
+    );
+    if (jobRes.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '❌ המשימה לא נמצאה.');
+      return;
+    }
+    const job = jobRes.rows[0];
+
+    if (isDelete) {
+      try {
+        const { deleteJobMessages } = require('../../controllers/groupForwards/jobs.controller');
+        if (typeof deleteJobMessages === 'function') {
+          await cloudApi.sendTextMessage(phone, `🗑️ מתחיל למחוק את ההודעות שנשלחו...`);
+          deleteJobMessages(jobId, phone, 'cloud').catch(err => {
+            console.error('[StatusBotForward] deleteJobMessages error:', err.message);
+          });
+        } else {
+          await cloudApi.sendTextMessage(phone, `🗑️ מחיקה איננה זמינה כרגע.`);
+        }
+      } catch (e) {
+        console.error('[StatusBotForward] delete action error:', e.message);
+        await cloudApi.sendTextMessage(phone, `❌ שגיאה במחיקה: ${e.message}`);
+      }
+      return;
+    }
+
+    // Edit flow: ask user for new text
+    await setState(phone, 'waiting_fwd_edit_text', { jobId }, null);
+    const forwardTitle = job.forward_name ? `"${job.forward_name}"` : '';
+    await cloudApi.sendTextMessage(
+      phone,
+      `✏️ שלח את הנוסח החדש של ההודעה${forwardTitle ? ` עבור ${forwardTitle}` : ''}.\n\nההודעה שתשלח תחליף את כל ההודעות שנשלחו לקבוצות.`
+    );
+  } catch (err) {
+    console.error('[StatusBotForward] handleCompletedJobAction error:', err);
+    await cloudApi.sendTextMessage(phone, `❌ שגיאה: ${err.message}`);
+  }
+}
+
+/**
+ * Handle stop / stop+delete during active sending.
+ */
+async function handleStopJobAction(phone, selectedId) {
+  const isStopDelete = selectedId.startsWith('fwd_stopdelete_');
+  const jobId = selectedId.substring(isStopDelete ? 'fwd_stopdelete_'.length : 'fwd_stop_'.length);
+
+  try {
+    const jobRes = await db.query(
+      `SELECT id, status, forward_name FROM forward_jobs WHERE id = $1`,
+      [jobId]
+    );
+    if (jobRes.rows.length === 0) {
+      await cloudApi.sendTextMessage(phone, '❌ המשימה לא נמצאה.');
+      return;
+    }
+    const job = jobRes.rows[0];
+
+    if (!['pending', 'confirmed', 'sending'].includes(job.status)) {
+      await cloudApi.sendTextMessage(phone, `ℹ️ המשימה כבר ${job.status === 'completed' ? 'הסתיימה' : 'בוטלה'}.`);
+      return;
+    }
+
+    // Mark as stopped and optionally request delete — the existing job runner
+    // checks status and stops gracefully. deleteJobMessages handles the delete flow.
+    await db.query(
+      `UPDATE forward_jobs SET status = 'stopped', stop_requested_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [jobId]
+    ).catch(async () => {
+      // Fallback if stop_requested_at column doesn't exist
+      await db.query(`UPDATE forward_jobs SET status = 'stopped', updated_at = NOW() WHERE id = $1`, [jobId]);
+    });
+
+    if (isStopDelete) {
+      await cloudApi.sendTextMessage(phone, `⏹️ *${job.forward_name}*\n\nעוצר את השליחה ומוחק את ההודעות שנשלחו...`);
+      try {
+        const { deleteJobMessages } = require('../../controllers/groupForwards/jobs.controller');
+        if (typeof deleteJobMessages === 'function') {
+          deleteJobMessages(jobId, phone).catch(err => console.error('[StatusBotForward] deleteJobMessages error:', err.message));
+        }
+      } catch (e) { console.error('[StatusBotForward] delete error:', e.message); }
+    } else {
+      await cloudApi.sendTextMessage(phone, `⏹️ *${job.forward_name}*\n\nהשליחה נעצרה.`);
+    }
+  } catch (err) {
+    console.error('[StatusBotForward] handleStopJobAction error:', err);
+    await cloudApi.sendTextMessage(phone, `❌ שגיאה: ${err.message}`);
+  }
+}
+
+async function handleWaitingFwdEditText(phone, message, state) {
+  const stateData = state.state_data || {};
+  const { jobId } = stateData;
+  if (!jobId) { await setState(phone, 'idle', null, null); return; }
+
+  if (message.type !== 'text') {
+    await cloudApi.sendTextMessage(phone, '⚠️ כרגע ניתן לערוך רק טקסט.');
+    return;
+  }
+  const newText = (message.text?.body || '').trim();
+  if (!newText) { await cloudApi.sendTextMessage(phone, '⚠️ ההודעה ריקה'); return; }
+
+  // Save the new text + move to confirmation step (scoped by jobId to this chat only)
+  await setState(phone, 'waiting_fwd_edit_confirm', { jobId, newText }, null);
+
+  const preview = newText.length > 500 ? newText.substring(0, 500) + '...' : newText;
+  const sections = [{
+    title: 'אישור עריכה',
+    rows: [
+      { id: `fwd_editconfirm_${jobId}`, title: '✅ אשר ועדכן', description: 'עדכן את ההודעות בקבוצות' },
+      { id: `fwd_editretry_${jobId}`, title: '✏️ נסח מחדש', description: 'שלח נוסח אחר' },
+      { id: `fwd_editcancel_${jobId}`, title: '❌ בטל עריכה', description: 'בטל את העריכה' },
+    ]
+  }];
+  await cloudApi.sendListMessage(
+    phone,
+    `✏️ *תצוגה מקדימה של ההודעה החדשה:*\n\n${preview}\n\n—\nהאם לעדכן את כל ההודעות בקבוצות?`,
+    'בחר פעולה',
+    sections
+  );
+}
+
+/**
+ * Handle the edit confirmation buttons (aprove / retype / cancel).
+ */
+async function handleWaitingFwdEditConfirm(phone, message, state) {
+  const stateData = state.state_data || {};
+  const { jobId, newText } = stateData;
+  if (!jobId) { await setState(phone, 'idle', null, null); return; }
+
+  if (message.type !== 'interactive') {
+    // User sent new text before picking button — treat as new retype
+    if (message.type === 'text') {
+      const retypedText = (message.text?.body || '').trim();
+      if (retypedText) {
+        await setState(phone, 'waiting_fwd_edit_confirm', { jobId, newText: retypedText }, null);
+        const preview = retypedText.length > 500 ? retypedText.substring(0, 500) + '...' : retypedText;
+        const sections = [{
+          title: 'אישור עריכה',
+          rows: [
+            { id: `fwd_editconfirm_${jobId}`, title: '✅ אשר ועדכן', description: 'עדכן את ההודעות בקבוצות' },
+            { id: `fwd_editretry_${jobId}`, title: '✏️ נסח מחדש', description: 'שלח נוסח אחר' },
+            { id: `fwd_editcancel_${jobId}`, title: '❌ בטל עריכה', description: 'בטל את העריכה' },
+          ]
+        }];
+        await cloudApi.sendListMessage(
+          phone,
+          `✏️ *תצוגה מקדימה של ההודעה החדשה:*\n\n${preview}\n\n—\nהאם לעדכן את כל ההודעות בקבוצות?`,
+          'בחר פעולה',
+          sections
+        );
+        return;
+      }
+    }
+    await cloudApi.sendTextMessage(phone, '⚠️ אנא בחר פעולה מהרשימה');
+    return;
+  }
+
+  const selectedId = message.interactive?.list_reply?.id || message.interactive?.button_reply?.id || '';
+
+  if (selectedId.startsWith('fwd_editconfirm_')) {
+    try {
+      const { editJobMessages } = require('../../controllers/groupForwards/jobs.controller');
+      await cloudApi.sendTextMessage(phone, `✏️ מעדכן את ההודעות בקבוצות...`);
+      editJobMessages(jobId, newText, phone, 'cloud').catch(err => {
+        console.error('[StatusBotForward] editJobMessages error:', err.message);
+      });
+    } catch (err) {
+      console.error('[StatusBotForward] edit error:', err);
+      await cloudApi.sendTextMessage(phone, `❌ שגיאה: ${err.message}`);
+    }
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+
+  if (selectedId.startsWith('fwd_editretry_')) {
+    await setState(phone, 'waiting_fwd_edit_text', { jobId }, null);
+    await cloudApi.sendTextMessage(phone, '✏️ שלח את הנוסח החדש של ההודעה.');
+    return;
+  }
+
+  if (selectedId.startsWith('fwd_editcancel_')) {
+    await cloudApi.sendTextMessage(phone, `❌ העריכה בוטלה.`);
+    await setState(phone, 'idle', null, null);
+    return;
+  }
+
+  await cloudApi.sendTextMessage(phone, '⚠️ בחירה לא תקינה');
+}
+
+async function handleWaitingSchedEdit(phone, message, state) {
+  const stateData = state.state_data || {};
+  const { scheduledId } = stateData;
+  if (!scheduledId) { await setState(phone, 'idle', null, null); return; }
+
+  if (message.type !== 'text') {
+    await cloudApi.sendTextMessage(phone, '⚠️ כרגע ניתן לערוך רק טקסט.');
+    return;
+  }
+  const newText = (message.text?.body || '').trim();
+  if (!newText) { await cloudApi.sendTextMessage(phone, '⚠️ ההודעה ריקה'); return; }
+
+  await db.query(`UPDATE scheduled_forwards SET message_content = $1, message_type = 'text', updated_at = NOW() WHERE id = $2`, [newText, scheduledId]);
+  await cloudApi.sendTextMessage(phone, `✏️ ההודעה עודכנה.`);
+  await setState(phone, 'idle', null, null);
+}
+
 async function handleAfterSendMenuState(phone, message, state) {
   // Handle both list_reply (menu actions) and button_reply (retry button)
   if (message.type !== 'interactive' || (message.interactive.type !== 'list_reply' && message.interactive.type !== 'button_reply')) {

@@ -273,11 +273,28 @@ async function subscribeToService(req, res) {
         [userId, serviceId]
       );
     }
-    
-    res.json({ 
-      success: true, 
+
+    // If the newly-created subscription is for the status-bot service AND the
+    // user's main WhatsApp is already connected, auto-link the status bot to
+    // that session — user doesn't need to click "connect" anywhere.
+    // Fires on both trial-start and active (paid) subscription.
+    if (service.slug === 'status-bot' && ['active', 'trial'].includes(subscription.status)) {
+      try {
+        const { autoLinkStatusBotToMain } = require('../../services/statusBot/autoLink.service');
+        // Non-blocking: don't delay the HTTP response
+        setImmediate(() => {
+          autoLinkStatusBotToMain(userId, { source: 'post_purchase' })
+            .catch(e => console.warn(`[Services] Post-purchase auto-link failed for user ${userId}: ${e.message}`));
+        });
+      } catch (autoErr) {
+        console.warn(`[Services] Post-purchase auto-link init error: ${autoErr.message}`);
+      }
+    }
+
+    res.json({
+      success: true,
       subscription,
-      message: isTrial 
+      message: isTrial
         ? `התחלת תקופת ניסיון ל-${trialDays} ימים. החיוב יבוצע בתאריך ${trialEndsAt.toLocaleDateString('he-IL')}`
         : `נרשמת בהצלחה ל${service.name_he}`
     });
@@ -389,19 +406,109 @@ async function getServiceUsage(req, res) {
 /**
  * Check if user has access to a specific service
  */
+/**
+ * Programmatic access check. Returns { hasAccess: bool, subscription, reason, source }.
+ * Honors `features.bundled_with` — if the target service lists another slug there
+ * and the user has an active sub for it, access is granted.
+ */
+async function getServiceAccess(userId, slug) {
+  const now = new Date();
+
+  const svcRes = await db.query(
+    `SELECT id, slug, name_he, external_url, features FROM additional_services WHERE slug = $1 AND is_active = true LIMIT 1`,
+    [slug]
+  );
+  if (svcRes.rows.length === 0) return { hasAccess: false, reason: 'service_not_found' };
+  const service = svcRes.rows[0];
+
+  // Check user's own subscription
+  const ownRes = await db.query(
+    `SELECT uss.*, s.slug, s.name_he, s.external_url, s.features
+       FROM user_service_subscriptions uss
+       JOIN additional_services s ON s.id = uss.service_id
+      WHERE uss.user_id = $1 AND s.slug = $2`,
+    [userId, slug]
+  );
+  if (ownRes.rows.length > 0) {
+    const sub = ownRes.rows[0];
+    if (sub.status === 'active') return { hasAccess: true, subscription: sub, source: 'own' };
+    if (sub.status === 'trial') {
+      if (!sub.trial_ends_at || new Date(sub.trial_ends_at) > now) {
+        return { hasAccess: true, subscription: sub, source: 'trial' };
+      }
+      return { hasAccess: false, subscription: sub, reason: 'trial_expired' };
+    }
+    if (sub.status === 'cancelled') {
+      const expiresAt = sub.expires_at || sub.next_charge_date;
+      if (expiresAt && new Date(expiresAt) > now) {
+        return { hasAccess: true, subscription: sub, source: 'cancelled_grace', isCancelled: true };
+      }
+    }
+  }
+
+  // Bundled access — if any parent service grants this one for free.
+  const features = typeof service.features === 'string' ? JSON.parse(service.features) : (service.features || {});
+  const bundledWith = Array.isArray(features.bundled_with) ? features.bundled_with : [];
+  if (bundledWith.length > 0) {
+    const parentsRes = await db.query(
+      `SELECT uss.*, s.slug, s.name_he
+         FROM user_service_subscriptions uss
+         JOIN additional_services s ON s.id = uss.service_id
+        WHERE uss.user_id = $1
+          AND s.slug = ANY($2::text[])
+          AND (
+            uss.status = 'active'
+            OR (uss.status = 'trial' AND (uss.trial_ends_at IS NULL OR uss.trial_ends_at > NOW()))
+            OR (uss.status = 'cancelled' AND COALESCE(uss.expires_at, uss.next_charge_date) > NOW())
+          )
+        ORDER BY CASE uss.status WHEN 'active' THEN 1 WHEN 'trial' THEN 2 ELSE 3 END
+        LIMIT 1`,
+      [userId, bundledWith]
+    );
+    if (parentsRes.rows.length > 0) {
+      return {
+        hasAccess: true,
+        subscription: parentsRes.rows[0],
+        source: 'bundled',
+        bundledFrom: parentsRes.rows[0].slug,
+      };
+    }
+  }
+
+  return { hasAccess: false, subscription: ownRes.rows[0] || null, reason: 'no_active_subscription' };
+}
+
 async function checkServiceAccess(req, res) {
   try {
     const userId = req.user.id;
     const { slug } = req.params;
-    
-    // Get subscription - including cancelled ones (they might still have access until expires_at)
+
+    const access = await getServiceAccess(userId, slug);
+    if (access.hasAccess) {
+      return res.json({
+        hasAccess: true,
+        subscription: access.subscription,
+        externalUrl: access.subscription.external_url,
+        source: access.source,
+        bundledFrom: access.bundledFrom,
+        isCancelled: !!access.isCancelled,
+      });
+    }
+    return res.json({
+      hasAccess: false,
+      trialExpired: access.reason === 'trial_expired',
+      subscription: access.subscription,
+    });
+
+    // Legacy fallback kept for reference (superseded by getServiceAccess above).
+    // eslint-disable-next-line no-unreachable
     const result = await db.query(`
       SELECT uss.*, s.slug, s.name_he, s.external_url, s.features
       FROM user_service_subscriptions uss
       JOIN additional_services s ON s.id = uss.service_id
       WHERE uss.user_id = $1 AND s.slug = $2
     `, [userId, slug]);
-    
+
     if (result.rows.length === 0) {
       return res.json({ hasAccess: false });
     }
@@ -844,6 +951,202 @@ async function adminCancelSubscription(req, res) {
 }
 
 /**
+ * Update a user's service subscription (admin) - full billing control
+ * Allows setting custom price, next charge date, billing period, manual mode, admin notes
+ */
+async function adminUpdateSubscription(req, res) {
+  try {
+    const { serviceId, userId } = req.params;
+    const {
+      status, customPrice, nextChargeDate, billingPeriod,
+      isManual, adminNotes, expiresAt, trialEndsAt, allowNewCampaign
+    } = req.body;
+
+    // Verify subscription exists
+    const subResult = await db.query(
+      'SELECT uss.*, s.name_he, s.price FROM user_service_subscriptions uss JOIN additional_services s ON s.id = uss.service_id WHERE uss.user_id = $1 AND uss.service_id = $2',
+      [userId, serviceId]
+    );
+
+    if (subResult.rows.length === 0) {
+      return res.status(404).json({ error: 'מנוי שירות לא נמצא' });
+    }
+
+    const currentSub = subResult.rows[0];
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (status !== undefined) {
+      updates.push(`status = $${paramIndex++}`);
+      values.push(status);
+    }
+    if (customPrice !== undefined) {
+      updates.push(`custom_price = $${paramIndex++}`);
+      values.push(customPrice === null || customPrice === '' ? null : parseFloat(customPrice));
+    }
+    if (nextChargeDate !== undefined) {
+      updates.push(`next_charge_date = $${paramIndex++}`);
+      values.push(nextChargeDate || null);
+    }
+    if (billingPeriod !== undefined) {
+      updates.push(`billing_period = $${paramIndex++}`);
+      values.push(billingPeriod || 'monthly');
+    }
+    if (isManual !== undefined) {
+      updates.push(`is_manual = $${paramIndex++}`);
+      values.push(isManual);
+    }
+    if (adminNotes !== undefined) {
+      updates.push(`admin_notes = $${paramIndex++}`);
+      values.push(adminNotes || null);
+    }
+    if (expiresAt !== undefined) {
+      updates.push(`expires_at = $${paramIndex++}`);
+      values.push(expiresAt || null);
+    }
+    if (trialEndsAt !== undefined) {
+      updates.push(`trial_ends_at = $${paramIndex++}`);
+      values.push(trialEndsAt || null);
+      if (trialEndsAt) {
+        updates.push(`is_trial = true`);
+      }
+    }
+    if (allowNewCampaign !== undefined) {
+      updates.push(`allow_new_campaign = $${paramIndex++}`);
+      values.push(allowNewCampaign);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'אין שדות לעדכון' });
+    }
+
+    values.push(userId, serviceId);
+    const result = await db.query(`
+      UPDATE user_service_subscriptions
+      SET ${updates.join(', ')}, updated_at = NOW()
+      WHERE user_id = $${paramIndex} AND service_id = $${paramIndex + 1}
+      RETURNING *
+    `, values);
+
+    // Update pending billing_queue entries for this service if price changed
+    const priceChanged = customPrice !== undefined;
+    const dateChanged = nextChargeDate !== undefined;
+
+    if (priceChanged || dateChanged) {
+      const effectivePrice = customPrice !== undefined && customPrice !== null && customPrice !== ''
+        ? parseFloat(customPrice)
+        : parseFloat(currentSub.price);
+
+      const updateFields = [];
+      const updateValues = [];
+      let idx = 1;
+
+      if (priceChanged) {
+        updateFields.push(`amount = $${idx++}`);
+        updateValues.push(effectivePrice);
+      }
+      if (dateChanged && nextChargeDate) {
+        updateFields.push(`charge_date = $${idx++}::date`);
+        updateValues.push(nextChargeDate);
+      }
+
+      if (updateFields.length > 0) {
+        updateValues.push(userId);
+        const bqResult = await db.query(`
+          UPDATE billing_queue
+          SET ${updateFields.join(', ')}, updated_at = NOW()
+          WHERE user_id = $${idx}
+            AND status = 'pending'
+            AND billing_type = 'status_bot'
+          RETURNING id
+        `, updateValues);
+
+        if (bqResult.rows.length > 0) {
+          console.log(`[Admin Services] Updated ${bqResult.rows.length} pending service charges for user ${userId}`);
+        }
+      }
+    }
+
+    // Audit log
+    try {
+      const adminId = req.user.id;
+      await db.query(`
+        INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+        VALUES ($1, 'update_service_subscription', 'user_service_subscriptions', $2, $3)
+      `, [adminId, result.rows[0].id, JSON.stringify({
+        userId, serviceId, changes: req.body,
+        previousStatus: currentSub.status,
+        previousPrice: currentSub.custom_price
+      })]);
+    } catch (auditErr) {
+      console.error('[Admin Services] Audit log error:', auditErr.message);
+    }
+
+    res.json({ success: true, subscription: result.rows[0] });
+
+  } catch (error) {
+    console.error('[Admin Services] Update subscription error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון מנוי שירות' });
+  }
+}
+
+/**
+ * Schedule a charge for a service subscription (admin)
+ */
+async function adminScheduleServiceCharge(req, res) {
+  try {
+    const { serviceId, userId } = req.params;
+    const { amount, chargeDate, description } = req.body;
+    const adminId = req.user.id;
+
+    // Verify subscription
+    const subResult = await db.query(`
+      SELECT uss.*, s.name_he, s.price
+      FROM user_service_subscriptions uss
+      JOIN additional_services s ON s.id = uss.service_id
+      WHERE uss.user_id = $1 AND uss.service_id = $2
+    `, [userId, serviceId]);
+
+    if (subResult.rows.length === 0) {
+      return res.status(404).json({ error: 'מנוי שירות לא נמצא' });
+    }
+
+    const sub = subResult.rows[0];
+    const chargeAmount = amount ? parseFloat(amount) : (sub.custom_price ? parseFloat(sub.custom_price) : parseFloat(sub.price));
+
+    // Get user's main subscription ID for billing_queue reference
+    const mainSubResult = await db.query(
+      'SELECT id FROM user_subscriptions WHERE user_id = $1',
+      [userId]
+    );
+
+    const billingQueueService = require('../../services/payment/billingQueue.service');
+    const charge = await billingQueueService.scheduleCharge({
+      userId,
+      subscriptionId: mainSubResult.rows[0]?.id || null,
+      amount: chargeAmount,
+      chargeDate: chargeDate || new Date().toISOString().split('T')[0],
+      billingType: 'status_bot',
+      planId: null,
+      description: description || `חיוב ${sub.name_he || 'שירות נוסף'}`,
+    });
+
+    // Audit log
+    await db.query(`
+      INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+      VALUES ($1, 'schedule_service_charge', 'billing_queue', $2, $3)
+    `, [adminId, charge.id, JSON.stringify({ userId, serviceId, amount: chargeAmount, chargeDate })]);
+
+    res.json({ success: true, charge });
+
+  } catch (error) {
+    console.error('[Admin Services] Schedule service charge error:', error);
+    res.status(500).json({ error: 'שגיאה בתזמון חיוב שירות' });
+  }
+}
+
+/**
  * Initialize tables (run once on server start)
  */
 async function initializeTables() {
@@ -994,6 +1297,7 @@ module.exports = {
   cancelSubscription,
   getServiceUsage,
   checkServiceAccess,
+  getServiceAccess,
   
   // Admin
   adminGetServices,
@@ -1004,4 +1308,6 @@ module.exports = {
   adminGrantTrial,
   adminAssignSubscription,
   adminCancelSubscription,
+  adminUpdateSubscription,
+  adminScheduleServiceCharge,
 };

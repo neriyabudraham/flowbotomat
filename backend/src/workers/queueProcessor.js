@@ -56,6 +56,22 @@ async function init() {
   // Start the queue processor
   startQueueProcessor();
   console.log('✅ Queue processor started');
+
+  // Start settings bus listener so admin setting changes are picked up instantly
+  try {
+    const settingsBus = require('../services/statusBot/settingsBus.service');
+    settingsBus.startListener().catch(e => console.error('[Worker] settingsBus failed:', e.message));
+  } catch (e) {
+    console.error('[Worker] Failed to start settings bus:', e.message);
+  }
+
+  // Also start the health watchdog in the worker so its decisions stay close to where the work runs
+  try {
+    const watchdog = require('../services/statusBot/healthWatchdog.service');
+    watchdog.start();
+  } catch (e) {
+    console.error('[Worker] Failed to start health watchdog:', e.message);
+  }
 }
 
 /**

@@ -131,23 +131,66 @@ async function retryCharge(req, res) {
   try {
     const { id } = req.params;
     const adminId = req.user.id;
-    
+
     console.log(`[AdminBilling] Admin ${adminId} retrying charge ${id}`);
-    
+
+    // Load the charge + sumit customer id for duplicate check
+    const chargeRow = await pool.query(
+      `SELECT bq.*, COALESCE(us.sumit_customer_id, upm.sumit_customer_id) AS sumit_customer_id
+         FROM billing_queue bq
+         LEFT JOIN user_subscriptions us ON us.id = bq.subscription_id
+         LEFT JOIN user_payment_methods upm ON upm.user_id = bq.user_id AND upm.is_active = true
+        WHERE bq.id = $1 AND bq.status = 'failed'`,
+      [id]
+    );
+    if (chargeRow.rows.length === 0) {
+      return res.status(404).json({ error: 'חיוב לא נמצא או לא במצב כשלון' });
+    }
+    const charge = chargeRow.rows[0];
+
+    // Duplicate-charge guard — NEVER re-hit Sumit if the customer was already
+    // charged (settled) recently. The admin retry flow used to blindly force
+    // charge_date=today and re-run, which is exactly how customers got
+    // double-charged on 2026-04-22/23.
+    const dupCheck = await billingQueueService.findExistingChargeForQueueItem(charge);
+    if (dupCheck.duplicate) {
+      console.warn(`[AdminBilling] Retry BLOCKED for charge ${id} — already settled (${dupCheck.source}). Marking as completed without re-charging.`);
+      // Ensure billing_queue is flipped out of 'failed' first so handleChargeSuccess
+      // can mark it completed; chargeNow/handleChargeSuccess expects a non-completed row.
+      await pool.query(`UPDATE billing_queue SET status = 'processing', updated_at = NOW() WHERE id = $1`, [id]);
+      await billingQueueService.handleChargeSuccess(charge, {
+        success: true,
+        transactionId: dupCheck.existingPayment.sumit_transaction_id,
+        documentNumber: dupCheck.existingPayment.sumit_document_number,
+        documentURL: dupCheck.existingPayment.receipt_url,
+        fromDuplicateGuard: true,
+      });
+      await pool.query(`
+        INSERT INTO admin_audit_log (admin_id, action, entity_type, entity_id, details)
+        VALUES ($1, 'retry_charge_blocked_duplicate', 'billing_queue', $2, $3)
+      `, [adminId, id, JSON.stringify({ source: dupCheck.source, existing: dupCheck.existingPayment })]);
+      return res.json({
+        success: true,
+        blocked: 'duplicate',
+        message: 'החיוב כבר בוצע בפועל מול Sumit — סומן כהושלם ללא חיוב נוסף.',
+        existingPayment: dupCheck.existingPayment,
+      });
+    }
+
     // Reset the charge status to pending for immediate processing
     const resetResult = await pool.query(`
-      UPDATE billing_queue 
-      SET status = 'pending', 
+      UPDATE billing_queue
+      SET status = 'pending',
           charge_date = CURRENT_DATE,
           updated_at = NOW()
       WHERE id = $1 AND status = 'failed'
       RETURNING *
     `, [id]);
-    
+
     if (resetResult.rows.length === 0) {
       return res.status(404).json({ error: 'חיוב לא נמצא או לא במצב כשלון' });
     }
-    
+
     // Execute the charge
     const result = await billingQueueService.chargeNow(id);
     
@@ -181,22 +224,71 @@ async function scheduleManualCharge(req, res) {
     }
     
     console.log(`[AdminBilling] Admin ${adminId} scheduling manual charge for user ${userId}`);
-    
-    // Get user's subscription ID
+
+    // Get user's subscription ID + sumit customer for duplicate check
     const subResult = await pool.query(
-      `SELECT id, plan_id FROM user_subscriptions WHERE user_id = $1`,
+      `SELECT us.id, us.plan_id, COALESCE(us.sumit_customer_id, upm.sumit_customer_id) AS sumit_customer_id
+         FROM user_subscriptions us
+         LEFT JOIN user_payment_methods upm ON upm.user_id = us.user_id AND upm.is_active = true
+        WHERE us.user_id = $1 LIMIT 1`,
       [userId]
     );
-    
-    const charge = await billingQueueService.scheduleCharge({
-      userId,
-      subscriptionId: subResult.rows[0]?.id,
-      amount: parseFloat(amount),
-      chargeDate: chargeDate || new Date().toISOString().split('T')[0],
-      billingType: 'manual',
-      planId: subResult.rows[0]?.plan_id,
-      description: description || 'חיוב ידני',
-    });
+
+    const effectiveChargeDate = chargeDate || new Date().toISOString().split('T')[0];
+    const isImmediate = effectiveChargeDate === new Date().toISOString().split('T')[0];
+
+    // If this is a same-day manual charge, verify with Sumit first that this
+    // customer hasn't already been charged the same amount in the last 24h.
+    // Stops an admin from accidentally double-charging via the UI.
+    if (isImmediate && subResult.rows[0]?.sumit_customer_id) {
+      try {
+        const sumitService = require('../../services/payment/sumit.service');
+        const remote = await sumitService.findRecentPayment({
+          customerId: subResult.rows[0].sumit_customer_id,
+          amount: parseFloat(amount),
+          withinHours: 24,
+        });
+        if (remote.success && remote.payment) {
+          console.warn(`[AdminBilling] Manual charge BLOCKED for user ${userId} — Sumit already settled ${amount}₪ at ${remote.payment.Date} (Payment ID ${remote.payment.ID}).`);
+          return res.status(409).json({
+            error: 'החיוב לא נוצר - ב-24 שעות האחרונות כבר בוצע חיוב באותו סכום ללקוח הזה ב-Sumit.',
+            blocked: 'duplicate_remote',
+            existingPayment: {
+              paymentId: remote.payment.ID,
+              date: remote.payment.Date,
+              documentNumber: remote.payment.DocumentNumber,
+            },
+          });
+        }
+      } catch (e) {
+        console.warn('[AdminBilling] manual charge Sumit duplicate check failed, proceeding:', e.message);
+      }
+    }
+
+    let charge;
+    try {
+      charge = await billingQueueService.scheduleCharge({
+        userId,
+        subscriptionId: subResult.rows[0]?.id,
+        amount: parseFloat(amount),
+        chargeDate: effectiveChargeDate,
+        billingType: 'manual',
+        planId: subResult.rows[0]?.plan_id,
+        description: description || 'חיוב ידני',
+        blockOnDuplicate: true,
+      });
+    } catch (e) {
+      if (e.code === 'DUPLICATE_CHARGE_SAME_DAY' || e.code === 'DUPLICATE_QUEUE_ROW_SAME_DAY') {
+        return res.status(409).json({
+          error: e.code === 'DUPLICATE_CHARGE_SAME_DAY'
+            ? 'למשתמש כבר בוצע חיוב מוצלח באותו יום — לא ניתן לחייב שוב.'
+            : 'כבר קיים חיוב פתוח לאותו לקוח לתאריך המבוקש.',
+          blocked: e.code,
+          existing: e.existingPayment || e.existingRow,
+        });
+      }
+      throw e;
+    }
     
     // Log admin action
     await pool.query(`

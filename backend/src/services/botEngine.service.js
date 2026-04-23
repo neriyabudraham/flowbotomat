@@ -157,6 +157,25 @@ class BotEngine {
 
   async _processEventImpl(userId, contactPhone, eventType, eventData = {}) {
     try {
+      // Status reaction dedup: at most one trigger per (user, reactor, status).
+      // Removals (empty text) never fire; re-adds after a removal are ignored too.
+      // Centralized here so every caller (webhook + status-bot controller) is covered.
+      if (eventType === 'status_reaction') {
+        const reactionText = (eventData.reaction || '').trim();
+        if (!reactionText) return;
+        const rawMsgId = eventData.messageId || '';
+        const statusHex = this.extractStatusHexId(rawMsgId) || rawMsgId;
+        if (!contactPhone || !statusHex) return;
+        const dedup = await db.query(
+          `INSERT INTO status_reaction_trigger_log (user_id, reactor_phone, status_hex_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT DO NOTHING
+           RETURNING 1`,
+          [userId, contactPhone, statusHex]
+        );
+        if (dedup.rowCount === 0) return;
+      }
+
       // For webhook events: only run the specific bot identified by botId
       // For other events: run all active bots
       let botsResult;
@@ -4834,18 +4853,41 @@ class BotEngine {
     const steps = node.data?.steps || [];
     if (steps.length === 0) return;
 
+    // Pre-load all persisted contact variables so formulas can reference
+    // user-defined variables stored in prior runs (not just system vars).
+    const dbVars = await this.getContactVariables(contact.id);
+
     for (const step of steps) {
       const { expression, outputVar } = step;
       if (!expression || !outputVar) continue;
 
       try {
-        // Replace {{variables}} — use numeric literal if value is a number, else quoted string
+        // Resolve each {{var}} to a safe literal:
+        //   1. in-memory contact.variables (set earlier in this run)
+        //   2. persisted DB contact_variables
+        //   3. system/basic replacements (name, phone, date, ...)
+        //   4. unresolved → 0 (so unset counters behave like numbers)
         const resolvedExpr = expression.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
-          const raw = this.replaceVariables(match, contact, message, '', userId);
-          if (raw !== null && raw !== '' && !isNaN(Number(raw)) && String(raw).trim() !== '') {
-            return String(Number(raw));
+          const key = varName.trim();
+          let raw;
+
+          if (contact.variables && Object.prototype.hasOwnProperty.call(contact.variables, key)) {
+            raw = contact.variables[key];
+          } else if (Object.prototype.hasOwnProperty.call(dbVars, key)) {
+            raw = dbVars[key];
+          } else {
+            const sys = this.replaceVariables(match, contact, message, '', userId);
+            raw = sys === match ? undefined : sys;
           }
-          return JSON.stringify(raw);
+
+          if (raw === undefined || raw === null || String(raw).trim() === '') {
+            return '0';
+          }
+          const num = Number(raw);
+          if (!Number.isNaN(num) && String(raw).trim() !== '') {
+            return String(num);
+          }
+          return JSON.stringify(String(raw));
         });
 
         // Evaluate the expression safely
@@ -4856,6 +4898,7 @@ class BotEngine {
         // Update in-memory contact variables for subsequent steps
         if (!contact.variables) contact.variables = {};
         contact.variables[outputVar] = resultStr;
+        dbVars[outputVar] = resultStr;
       } catch (err) {
         console.error(`[BotEngine] Formula step error for {{${outputVar}}}: ${err.message}`);
       }

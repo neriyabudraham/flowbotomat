@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe, Receipt, Server, Mail, FileText
+  Shield, BarChart3, Users, Settings, Activity, ArrowLeft, Database, CreditCard, Grid, Share2, Bell, Package, Smartphone, Globe, Receipt, Server, Mail, FileText, AlertTriangle
 } from 'lucide-react';
 import useAuthStore from '../store/authStore';
 import Logo from '../components/atoms/Logo';
@@ -26,9 +26,11 @@ import AdminWahaSources from '../components/admin/AdminWahaSources';
 import AdminProxySources from '../components/admin/AdminProxySources';
 import AdminEmailPreview from '../components/admin/AdminEmailPreview';
 import AdminLegalPages from '../components/admin/AdminLegalPages';
+import AdminSystemAlerts from '../components/admin/AdminSystemAlerts';
 
 const TABS = [
   { id: 'dashboard', label: 'דשבורד', icon: BarChart3 },
+  { id: 'alerts', label: 'התראות מערכת', icon: AlertTriangle },
   { id: 'users', label: 'משתמשים', icon: Users },
   { id: 'billing', label: 'חיובים', icon: Receipt },
   { id: 'subscriptions', label: 'תמחור', icon: CreditCard },
@@ -116,6 +118,8 @@ export default function AdminPage() {
     switch (activeTab) {
       case 'dashboard':
         return <AdminDashboard />;
+      case 'alerts':
+        return <AdminSystemAlerts />;
       case 'users':
         return <AdminUsers />;
       case 'billing':

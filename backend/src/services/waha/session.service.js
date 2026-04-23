@@ -279,11 +279,18 @@ async function createSession(baseUrl, apiKey, sessionName, metadata = {}) {
     config: {
       webhooks: [],
       metadata: metadata,
-      // Enable status, groups, channels, and broadcast
       status: true,
       groups: true,
       channels: true,
       broadcast: true,
+      gows: {
+        storage: {
+          messages: false,
+          groups: false,
+          chats: false,
+          labels: false,
+        },
+      },
     },
   });
   return response.data;
@@ -630,11 +637,18 @@ async function addWebhook(baseUrl, apiKey, sessionName, webhookUrl, events) {
     config: {
       ...currentConfig,
       webhooks: finalWebhooks,
-      // Ensure these are enabled
       status: true,
       groups: true,
       channels: true,
       broadcast: true,
+      gows: {
+        storage: {
+          messages: false,
+          groups: false,
+          chats: false,
+          labels: false,
+        },
+      },
     },
   });
   

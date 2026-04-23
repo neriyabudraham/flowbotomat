@@ -832,10 +832,14 @@ async function getQR(req, res) {
       }
 
       if (!sessionStatus) {
-        // Truly not found on any server - clean up stale DB record
-        console.log(`[StatusBot] Session ${connection.session_name} not found on ANY WAHA server, cleaning up DB`);
-        await db.query('DELETE FROM status_bot_connections WHERE id = $1', [connection.id]);
-        return res.json({ status: 'need_connect' });
+        // Session not found on any server - mark as disconnected but KEEP the record
+        // to preserve all viewer data (statuses, views, reactions, replies)
+        console.log(`[StatusBot] Session ${connection.session_name} not found on ANY WAHA server, marking as disconnected (preserving data)`);
+        await db.query(
+          `UPDATE status_bot_connections SET connection_status = 'disconnected', updated_at = NOW() WHERE id = $1`,
+          [connection.id]
+        );
+        return res.json({ status: 'need_connect', hasData: true });
       }
     }
 
@@ -993,9 +997,12 @@ async function getAuthorizedNumbers(req, res) {
     }
 
     const result = await db.query(`
-      SELECT * FROM status_bot_authorized_numbers 
-      WHERE connection_id = $1 AND is_active = true
-      ORDER BY created_at DESC
+      SELECT an.*,
+             (SELECT COUNT(*)::int FROM status_bot_imported_contacts sbic
+               WHERE sbic.authorized_number_id = an.id) AS imported_contacts_count
+        FROM status_bot_authorized_numbers an
+       WHERE an.connection_id = $1 AND an.is_active = true
+       ORDER BY an.created_at DESC
     `, [connection.id]);
 
     res.json({ numbers: result.rows });
@@ -1043,6 +1050,42 @@ async function addAuthorizedNumber(req, res) {
   } catch (error) {
     console.error('[StatusBot] Add authorized number error:', error);
     res.status(500).json({ error: 'שגיאה בהוספת מספר' });
+  }
+}
+
+/**
+ * Update per-authorized-sender permission to manage their own imported contacts.
+ * PATCH /status-bot/authorized-numbers/:numberId/can-import
+ * Body: { can_import_contacts: boolean }
+ */
+async function updateAuthorizedCanImport(req, res) {
+  try {
+    const userId = req.user.id;
+    const { numberId } = req.params;
+    const canImport = !!req.body?.can_import_contacts;
+
+    const connResult = await db.query(
+      'SELECT id FROM status_bot_connections WHERE user_id = $1',
+      [userId]
+    );
+    if (connResult.rows.length === 0) {
+      return res.status(404).json({ error: 'לא נמצא חיבור' });
+    }
+
+    const r = await db.query(`
+      UPDATE status_bot_authorized_numbers
+         SET can_import_contacts = $1
+       WHERE id = $2 AND connection_id = $3
+       RETURNING id, can_import_contacts
+    `, [canImport, numberId, connResult.rows[0].id]);
+
+    if (r.rowCount === 0) {
+      return res.status(404).json({ error: 'מספר מורשה לא נמצא' });
+    }
+    res.json({ success: true, number: r.rows[0] });
+  } catch (error) {
+    console.error('[StatusBot] Update authorized can_import error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון הרשאה' });
   }
 }
 
@@ -2000,7 +2043,7 @@ async function forceCancelProcessing(req, res) {
 
     // Signal the in-memory processing loop to stop this item
     const { forceStopItem } = require('../../services/statusBot/queue.service');
-    forceStopItem(parseInt(queueId));
+    await forceStopItem(queueId);
 
     // Reset queue lock
     await db.query(`
@@ -2785,15 +2828,92 @@ async function adminForceStopItem(req, res) {
       return res.status(400).json({ error: 'הפריט לא בתהליך עיבוד' });
     }
 
-    // Signal the queue processor to stop this item gracefully
+    // Signal the queue processor to stop AND immediately mark the item as stopped
+    // in the DB. The in-flight batch may still finish its current WAHA call, but
+    // the UI reflects the stop right away and the item won't auto-requeue.
     const { forceStopItem } = require('../../services/statusBot/queue.service');
-    forceStopItem(queueId);
+    await forceStopItem(queueId);
 
-    res.json({ success: true, message: 'נשלח אות עצירה — התהליך ייעצר בסיום הבאץ\' הנוכחי' });
+    res.json({ success: true, message: 'הסטטוס סומן כנעצר — השליחה תיפסק בסיום השליחה הנוכחית לבאץ\' האחרון' });
 
   } catch (error) {
     console.error('[StatusBot Admin] Force stop item error:', error);
     res.status(500).json({ error: 'שגיאה בעצירת התהליך' });
+  }
+}
+
+/**
+ * Admin: Resume a stuck/partial/failed queue item with top priority.
+ * Also clears retry_cancelled if set, so auto-retry resumes from now on.
+ */
+async function adminResumeQueueItem(req, res) {
+  try {
+    const { queueId } = req.params;
+    const { resumeQueueItem } = require('../../services/statusBot/queue.service');
+    const item = await resumeQueueItem(queueId);
+    if (!item) {
+      return res.status(404).json({ error: 'פריט לא נמצא או לא ניתן לחידוש (רק failed/sent/processing)' });
+    }
+    // Clear any prior retry_cancelled flag so future auto-retries work
+    await db.query(
+      `UPDATE status_bot_queue SET retry_cancelled = FALSE, retry_cancelled_at = NULL WHERE id = $1`,
+      [queueId]
+    ).catch(() => {});
+    res.json({ success: true, item, message: 'הסטטוס חודש וימשיך שליחה מאיפה שעצר' });
+  } catch (error) {
+    console.error('[StatusBot Admin] Resume queue item error:', error);
+    res.status(500).json({ error: 'שגיאה בחידוש שליחה' });
+  }
+}
+
+/**
+ * Admin: toggle retry_cancelled flag on a queue item.
+ * - Setting TRUE: park the item as 'sent' partial, stop auto-retries,
+ *   unblock the queue (next statuses proceed).
+ * - Setting FALSE: clear the flag; watchdog will pick the item up on next
+ *   tick and auto-resume with incremental delays.
+ * Body: { cancelled: boolean }
+ */
+async function adminToggleRetryCancelled(req, res) {
+  try {
+    const { queueId } = req.params;
+    const cancelled = req.body?.cancelled === true || req.body?.cancelled === 'true';
+
+    if (cancelled) {
+      // Park the item: force it into 'sent' partial + clear scheduled retry
+      const r = await db.query(
+        `UPDATE status_bot_queue
+         SET retry_cancelled = TRUE,
+             retry_cancelled_at = NOW(),
+             queue_status = CASE
+               WHEN queue_status IN ('pending', 'scheduled', 'processing') THEN 'sent'
+               ELSE queue_status
+             END,
+             processing_started_at = NULL,
+             scheduled_for = NULL,
+             sent_at = COALESCE(sent_at, NOW())
+         WHERE id = $1
+         RETURNING id, queue_status, contacts_sent, contacts_total, retry_cancelled`,
+        [queueId]
+      );
+      if (r.rowCount === 0) return res.status(404).json({ error: 'פריט לא נמצא' });
+      return res.json({ success: true, item: r.rows[0], message: 'חידוש השליחה בוטל' });
+    } else {
+      // Un-cancel: clear flag; watchdog will pick it up on next tick
+      const r = await db.query(
+        `UPDATE status_bot_queue
+         SET retry_cancelled = FALSE,
+             retry_cancelled_at = NULL
+         WHERE id = $1
+         RETURNING id, queue_status, contacts_sent, contacts_total, retry_cancelled`,
+        [queueId]
+      );
+      if (r.rowCount === 0) return res.status(404).json({ error: 'פריט לא נמצא' });
+      return res.json({ success: true, item: r.rows[0], message: 'החידוש הופעל מחדש — המערכת תמשיך לנסות' });
+    }
+  } catch (error) {
+    console.error('[StatusBot Admin] Toggle retry_cancelled error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון' });
   }
 }
 
@@ -2869,7 +2989,9 @@ async function adminGetUserDetails(req, res) {
         id, status_type, content, queue_status, error_message,
         created_at, processing_started_at, sent_at, scheduled_for,
         source, source_phone, part_number, total_parts,
-        contacts_sent, contacts_total
+        contacts_sent, contacts_total,
+        retry_count, first_attempted_at, partial_abandoned,
+        retry_cancelled, retry_cancelled_at
       FROM status_bot_queue
       WHERE connection_id = $1
       ORDER BY created_at DESC
@@ -4090,6 +4212,7 @@ async function adminGetQueueSettings(req, res) {
       'statusbot_contacts_retry_pause_minutes',
       'statusbot_viewer_timeout_ms',
       'statusbot_viewer_timeout_retries',
+      'statusbot_imported_contacts_max_per_user',
     ];
     const result = await db.query(`SELECT key, value FROM system_settings WHERE key = ANY($1)`, [keys]);
     const settings = {
@@ -4110,6 +4233,7 @@ async function adminGetQueueSettings(req, res) {
       contactsRetryPauseMinutes: 3,
       viewerTimeoutMs: 180000,
       viewerTimeoutRetries: 2,
+      importedContactsMaxPerUser: 50000,
     };
     for (const row of result.rows) {
       const val = parseFloat(JSON.parse(row.value));
@@ -4131,6 +4255,7 @@ async function adminGetQueueSettings(req, res) {
       if (row.key === 'statusbot_contacts_retry_pause_minutes') settings.contactsRetryPauseMinutes = val;
       if (row.key === 'statusbot_viewer_timeout_ms') settings.viewerTimeoutMs = val;
       if (row.key === 'statusbot_viewer_timeout_retries') settings.viewerTimeoutRetries = val;
+      if (row.key === 'statusbot_imported_contacts_max_per_user') settings.importedContactsMaxPerUser = val;
     }
     res.json(settings);
   } catch (error) {
@@ -4194,7 +4319,17 @@ async function refreshContactsCache(req, res) {
     const creds = await getWahaCredentialsForConnection(connection);
     const { fetchAndCacheContacts } = require('../../services/statusBot/queue.service');
     const contacts = await fetchAndCacheContacts(creds.baseUrl, creds.apiKey, connection.session_name, connection.id);
-    res.json({ count: contacts.length, synced_at: new Date().toISOString() });
+    // Count only valid, unique, deliverable phones (exclude LIDs / groups / newsletters / duplicates)
+    const uniquePhones = new Set();
+    for (const c of contacts) {
+      const id = c?.id;
+      if (typeof id !== 'string') continue;
+      if (id.includes('@lid') || id.includes('@g.us') || id.includes('@newsletter')) continue;
+      const phone = id.replace(/@.*/, '').replace(/\D/g, '');
+      if (!phone || phone.length < 8) continue;
+      uniquePhones.add(phone);
+    }
+    res.json({ count: uniquePhones.size, synced_at: new Date().toISOString() });
   } catch (error) {
     console.error('[StatusBot] Refresh contacts cache error:', error);
     res.status(500).json({ error: 'שגיאה בסנכרון אנשי הקשר' });
@@ -4267,6 +4402,7 @@ async function adminUpdateQueueSettings(req, res) {
       contactsRetryPauseMinutes: 'statusbot_contacts_retry_pause_minutes',
       viewerTimeoutMs: 'statusbot_viewer_timeout_ms',
       viewerTimeoutRetries: 'statusbot_viewer_timeout_retries',
+      importedContactsMaxPerUser: 'statusbot_imported_contacts_max_per_user',
     };
     for (const [field, key] of Object.entries(settingsMap)) {
       if (req.body[field] !== undefined) {
@@ -4545,6 +4681,179 @@ async function reorderQueueItems(req, res) {
   }
 }
 
+// ============================================
+// GROUP BROADCAST ON STATUS UPLOAD (USER-FACING)
+// ============================================
+
+/**
+ * Helper: get connection for user, ensure ownership
+ */
+async function getUserConnection(userId) {
+  const result = await db.query(
+    `SELECT * FROM status_bot_connections WHERE user_id = $1 ORDER BY is_active DESC, created_at DESC LIMIT 1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * Helper: check if user has group_forwards feature (required for group broadcast)
+ */
+async function hasGroupForwardsFeature(userId) {
+  const { checkLimit } = require('../subscriptions/subscriptions.controller');
+  const check = await checkLimit(userId, 'allow_group_forwards');
+  return !!check?.allowed;
+}
+
+async function getGroupBroadcastSettings(req, res) {
+  try {
+    const userId = req.user.id;
+    const connection = await getUserConnection(userId);
+    if (!connection) return res.status(404).json({ error: 'לא נמצא חיבור סטטוס בוט' });
+
+    const allowed = await hasGroupForwardsFeature(userId);
+    const targets = await db.query(
+      `SELECT id, group_id, group_name, sort_order, is_active, created_at
+       FROM status_bot_group_broadcast_targets
+       WHERE connection_id = $1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [connection.id]
+    );
+
+    res.json({
+      featureAllowed: allowed,
+      mode: connection.group_broadcast_mode || 'disabled',
+      delayMin: connection.group_broadcast_delay_min || 5,
+      delayMax: connection.group_broadcast_delay_max || 10,
+      targets: targets.rows,
+    });
+  } catch (error) {
+    console.error('[StatusBot] getGroupBroadcastSettings error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת הגדרות תפוצה' });
+  }
+}
+
+async function updateGroupBroadcastDelay(req, res) {
+  try {
+    const userId = req.user.id;
+    const { delayMin, delayMax } = req.body;
+
+    const allowed = await hasGroupForwardsFeature(userId);
+    if (!allowed) return res.status(403).json({ error: 'לא נמצא מנוי לתפוצת קבוצות' });
+
+    const connection = await getUserConnection(userId);
+    if (!connection) return res.status(404).json({ error: 'לא נמצא חיבור סטטוס בוט' });
+
+    // Enforce minimum 5 seconds
+    const validMin = Math.max(5, parseInt(delayMin) || 5);
+    const validMax = Math.max(validMin, parseInt(delayMax) || validMin);
+    const cappedMin = Math.min(3600, validMin);
+    const cappedMax = Math.min(3600, validMax);
+
+    await db.query(
+      `UPDATE status_bot_connections SET group_broadcast_delay_min = $1, group_broadcast_delay_max = $2, updated_at = NOW() WHERE id = $3`,
+      [cappedMin, cappedMax, connection.id]
+    );
+
+    res.json({ success: true, delayMin: cappedMin, delayMax: cappedMax });
+  } catch (error) {
+    console.error('[StatusBot] updateGroupBroadcastDelay error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון דיליי' });
+  }
+}
+
+async function updateGroupBroadcastMode(req, res) {
+  try {
+    const userId = req.user.id;
+    const { mode } = req.body; // 'disabled' | 'ask' | 'auto'
+
+    if (!['disabled', 'ask', 'auto'].includes(mode)) {
+      return res.status(400).json({ error: 'מצב לא תקין' });
+    }
+
+    if (mode !== 'disabled') {
+      const allowed = await hasGroupForwardsFeature(userId);
+      if (!allowed) return res.status(403).json({ error: 'לא נמצא מנוי לתפוצת קבוצות' });
+    }
+
+    const connection = await getUserConnection(userId);
+    if (!connection) return res.status(404).json({ error: 'לא נמצא חיבור סטטוס בוט' });
+
+    await db.query(
+      `UPDATE status_bot_connections SET group_broadcast_mode = $1, updated_at = NOW() WHERE id = $2`,
+      [mode, connection.id]
+    );
+
+    res.json({ success: true, mode });
+  } catch (error) {
+    console.error('[StatusBot] updateGroupBroadcastMode error:', error);
+    res.status(500).json({ error: 'שגיאה בעדכון מצב תפוצה' });
+  }
+}
+
+async function getAvailableGroups(req, res) {
+  // Delegate to the group-forwards list controller which has proven fast parallel fetching
+  // and returns both groups + channels in a well-normalized format.
+  try {
+    const userId = req.user.id;
+
+    const allowed = await hasGroupForwardsFeature(userId);
+    if (!allowed) return res.status(403).json({ error: 'לא נמצא מנוי לתפוצת קבוצות' });
+
+    const listController = require('../groupForwards/list.controller');
+    if (typeof listController.getAvailableGroups === 'function') {
+      return listController.getAvailableGroups(req, res);
+    }
+
+    return res.status(500).json({ error: 'getAvailableGroups not available' });
+  } catch (error) {
+    console.error('[StatusBot] getAvailableGroups error:', error);
+    res.status(500).json({ error: 'שגיאה בטעינת קבוצות' });
+  }
+}
+
+async function setGroupBroadcastTargets(req, res) {
+  try {
+    const userId = req.user.id;
+    const { groups } = req.body; // array of { group_id, group_name }
+
+    if (!Array.isArray(groups)) return res.status(400).json({ error: 'נדרש מערך קבוצות' });
+
+    const allowed = await hasGroupForwardsFeature(userId);
+    if (!allowed) return res.status(403).json({ error: 'לא נמצא מנוי לתפוצת קבוצות' });
+
+    const connection = await getUserConnection(userId);
+    if (!connection) return res.status(404).json({ error: 'לא נמצא חיבור סטטוס בוט' });
+
+    // Replace all targets atomically
+    await db.query('BEGIN');
+    try {
+      await db.query(
+        `DELETE FROM status_bot_group_broadcast_targets WHERE connection_id = $1`,
+        [connection.id]
+      );
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        if (!g.group_id) continue;
+        await db.query(
+          `INSERT INTO status_bot_group_broadcast_targets (connection_id, group_id, group_name, sort_order)
+           VALUES ($1, $2, $3, $4)`,
+          [connection.id, g.group_id, g.group_name || null, i]
+        );
+      }
+      await db.query('COMMIT');
+    } catch (err) {
+      await db.query('ROLLBACK');
+      throw err;
+    }
+
+    res.json({ success: true, count: groups.length });
+  } catch (error) {
+    console.error('[StatusBot] setGroupBroadcastTargets error:', error);
+    res.status(500).json({ error: 'שגיאה בשמירת קבוצות' });
+  }
+}
+
 module.exports = {
   // Connection
   getConnection,
@@ -4553,11 +4862,12 @@ module.exports = {
   getQR,
   disconnect,
   updateSettings,
-  
+
   // Authorized numbers
   getAuthorizedNumbers,
   addAuthorizedNumber,
   removeAuthorizedNumber,
+  updateAuthorizedCanImport,
   
   // Status upload
   uploadTextStatus,
@@ -4602,6 +4912,8 @@ module.exports = {
   adminResetQueueLock,
   adminForceCancelItem,
   adminForceStopItem,
+  adminResumeQueueItem,
+  adminToggleRetryCancelled,
   adminSyncPhoneNumbers,
   adminGetUserErrors,
   adminGetUserDetails,

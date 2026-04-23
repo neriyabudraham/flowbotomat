@@ -1,5 +1,6 @@
 const db = require('../../config/database');
 const broadcastSender = require('../../services/broadcasts/sender.service');
+const campaignWindow = require('../../services/broadcasts/campaignWindow.service');
 const { getAudienceContacts } = require('../../services/broadcasts/audienceFilter.service');
 
 /**
@@ -49,8 +50,22 @@ async function getCampaigns(req, res) {
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `, [...params, limit, offset]);
     
+    // Enrich each campaign with `predicted_next_start` — the next time the
+    // configured active_windows opens, relative to now. Lets the UI show a
+    // "would start at ..." countdown even for draft/paused campaigns.
+    const enriched = result.rows.map(c => {
+      let predicted = null;
+      try {
+        if (c.settings) {
+          const next = campaignWindow.computeNextValidTime(new Date(), c.settings);
+          predicted = next ? next.toISOString() : null;
+        }
+      } catch {}
+      return { ...c, predicted_next_start: predicted };
+    });
+
     res.json({
-      campaigns: result.rows,
+      campaigns: enriched,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -194,7 +209,11 @@ async function updateCampaign(req, res) {
     }
     
     const campaign = campaignResult.rows[0];
-    if (!['draft', 'scheduled'].includes(campaign.status)) {
+    // Allow editing in any state. For running campaigns we'll recompute
+    // next_batch_at from the new settings after the update so the window
+    // change takes effect on the very next tick.
+    const EDITABLE_STATES = ['draft', 'scheduled', 'running', 'paused', 'cancelled', 'completed', 'failed'];
+    if (!EDITABLE_STATES.includes(campaign.status)) {
       return res.status(400).json({ error: 'לא ניתן לערוך קמפיין בסטטוס זה' });
     }
     
@@ -242,13 +261,32 @@ async function updateCampaign(req, res) {
     params.push(id, userId);
     
     const result = await db.query(`
-      UPDATE broadcast_campaigns 
+      UPDATE broadcast_campaigns
       SET ${updates.join(', ')}
       WHERE id = $${paramIndex++} AND user_id = $${paramIndex}
       RETURNING *
     `, params);
-    
-    res.json({ campaign: result.rows[0] });
+
+    const updated = result.rows[0];
+
+    // If the settings (windows/timezone/delay) changed on a running campaign,
+    // recompute next_batch_at so the new window takes effect immediately.
+    if (updated && updated.status === 'running' && settings !== undefined) {
+      try {
+        const nextValid = campaignWindow.computeNextValidTime(new Date(), updated.settings || {});
+        await db.query(
+          `UPDATE broadcast_campaigns SET next_batch_at = $2 WHERE id = $1`,
+          [id, nextValid]
+        );
+        updated.next_batch_at = nextValid;
+        // Nudge the tick so the change surfaces in the admin view right away
+        campaignWindow.tick().catch(() => {});
+      } catch (recomputeErr) {
+        console.warn(`[Broadcasts] next_batch_at recompute failed: ${recomputeErr.message}`);
+      }
+    }
+
+    res.json({ campaign: updated });
   } catch (error) {
     console.error('[Broadcasts] Update campaign error:', error);
     res.status(500).json({ error: 'שגיאה בעדכון קמפיין' });
@@ -346,16 +384,23 @@ async function startCampaign(req, res) {
         `, [id, contact.id, contact.phone, contact.display_name]);
       }
       
-      // Update campaign status
+      // Compute first next_batch_at respecting the active window. If outside
+      // the window, the campaign will start at the next valid window opening.
+      const freshSettings = campaign.settings || {};
+      const firstValid = campaignWindow.computeNextValidTime(new Date(), freshSettings);
+
       await client.query(`
-        UPDATE broadcast_campaigns 
-        SET status = 'running', 
+        UPDATE broadcast_campaigns
+        SET status = 'running',
             started_at = COALESCE(started_at, NOW()),
             total_recipients = $1,
+            paused_by_user = false,
+            stopped_by_user = false,
+            next_batch_at = $3,
             updated_at = NOW()
         WHERE id = $2
-      `, [contacts.length, id]);
-      
+      `, [contacts.length, id, firstValid]);
+
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
@@ -363,10 +408,12 @@ async function startCampaign(req, res) {
     } finally {
       client.release();
     }
-    
-    // Start sending in background (don't await)
-    broadcastSender.startCampaignSending(id, userId).catch(err => {
-      console.error(`[Broadcasts] Background sending error for campaign ${id}:`, err);
+
+    // Trigger the window tick right away — if we're inside the window it'll
+    // send the first batch immediately; if not, the DB state already points
+    // to the next valid moment and the periodic tick will handle it.
+    campaignWindow.tick().catch(err => {
+      console.error(`[Broadcasts] Window tick error after start for ${id}:`, err);
     });
     
     const updatedCampaign = await db.query(
@@ -388,21 +435,21 @@ async function pauseCampaign(req, res) {
   try {
     const userId = req.user.id;
     const { id } = req.params;
-    
+
     const result = await db.query(`
-      UPDATE broadcast_campaigns 
-      SET status = 'paused', updated_at = NOW()
+      UPDATE broadcast_campaigns
+      SET status = 'paused', paused_by_user = true, updated_at = NOW()
       WHERE id = $1 AND user_id = $2 AND status = 'running'
       RETURNING *
     `, [id, userId]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא או לא ניתן להשהייה' });
     }
-    
-    // Signal the sender to pause
+
+    // Legacy in-memory signal (if any legacy sender is still running for this id)
     broadcastSender.pauseCampaign(id);
-    
+
     res.json({ campaign: result.rows[0] });
   } catch (error) {
     console.error('[Broadcasts] Pause campaign error:', error);
@@ -417,23 +464,52 @@ async function resumeCampaign(req, res) {
   try {
     const userId = req.user.id;
     const { id } = req.params;
-    
-    const result = await db.query(`
-      UPDATE broadcast_campaigns 
-      SET status = 'running', updated_at = NOW()
-      WHERE id = $1 AND user_id = $2 AND status = 'paused'
-      RETURNING *
-    `, [id, userId]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'קמפיין לא נמצא או לא ניתן להמשך' });
+
+    // Load campaign to check if resume is allowed (when user explicitly stopped it)
+    const loadRes = await db.query(
+      `SELECT * FROM broadcast_campaigns WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+    if (loadRes.rows.length === 0) {
+      return res.status(404).json({ error: 'קמפיין לא נמצא' });
     }
-    
-    // Restart sending in background
-    broadcastSender.startCampaignSending(id, userId).catch(err => {
-      console.error(`[Broadcasts] Background resume error for campaign ${id}:`, err);
-    });
-    
+    const camp = loadRes.rows[0];
+
+    // Cancelled campaigns can be resumed only when allow_resume is explicitly true
+    // (otherwise "stop" means "done forever")
+    const settings = camp.settings || {};
+    const allowResume = settings.allow_resume !== false; // default true
+    if (camp.status === 'cancelled' && !allowResume) {
+      return res.status(400).json({ error: 'הקמפיין סומן כ-עצור לצמיתות ולא ניתן להמשיך' });
+    }
+
+    if (!['paused', 'cancelled'].includes(camp.status)) {
+      return res.status(400).json({ error: 'ניתן להמשיך רק קמפיין שהושהה או נעצר' });
+    }
+
+    // Preserve any pending batch-delay: if we paused MID-WAIT between batches
+    // (e.g. 1-minute delay, paused after 20s), resume should keep the remaining
+    // wait rather than fire a new batch immediately. We do this by computing
+    // the next valid time starting from max(now, original next_batch_at).
+    const now = new Date();
+    const originalNext = camp.next_batch_at ? new Date(camp.next_batch_at) : null;
+    const baseline = originalNext && originalNext > now ? originalNext : now;
+    const nextValid = campaignWindow.computeNextValidTime(baseline, settings);
+
+    const result = await db.query(`
+      UPDATE broadcast_campaigns
+      SET status = 'running',
+          paused_by_user = false,
+          stopped_by_user = false,
+          next_batch_at = $3,
+          updated_at = NOW()
+      WHERE id = $1 AND user_id = $2
+      RETURNING *
+    `, [id, userId, nextValid]);
+
+    // Trigger immediate tick
+    campaignWindow.tick().catch(() => {});
+
     res.json({ campaign: result.rows[0] });
   } catch (error) {
     console.error('[Broadcasts] Resume campaign error:', error);
@@ -450,16 +526,17 @@ async function cancelCampaign(req, res) {
     const { id } = req.params;
     
     const result = await db.query(`
-      UPDATE broadcast_campaigns 
-      SET status = 'cancelled', updated_at = NOW()
+      UPDATE broadcast_campaigns
+      SET status = 'cancelled', stopped_by_user = true,
+          next_batch_at = NULL, updated_at = NOW()
       WHERE id = $1 AND user_id = $2 AND status IN ('running', 'paused', 'scheduled')
       RETURNING *
     `, [id, userId]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'קמפיין לא נמצא או לא ניתן לביטול' });
     }
-    
+
     // Signal the sender to cancel
     broadcastSender.cancelCampaign(id);
     
